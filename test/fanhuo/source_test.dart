@@ -117,6 +117,10 @@ void main() {
       expect(imgNodes2.length, 1, reason: '组合规则 dt@a@img 应为 1，实际 ' + imgNodes2.length.toString());
       final imgNodes = RuleEngine.selectNodesFrom(first, 'tag.dt@tag.a@img');
       expect(imgNodes.length, 1, reason: 'dl 里 dt>a>img 应该 1 个，实际 ' + imgNodes.length.toString());
+      final byTextRule = RuleEngine.valueOf(imgNodes.first, 'tag.img@text');
+      expect(byTextRule, isNull, reason: 'img 文本应为空');
+      final srcRule = RuleEngine.valueOf(imgNodes.first, 'tag.img@href');
+      expect(srcRule, isNull, reason: 'img 没有 href');
       expect(RuleEngine.valueOf(imgNodes.first, 'tag.img@src'), '/img/1.jpg');
     });
 
