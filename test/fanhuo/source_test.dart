@@ -109,6 +109,10 @@ void main() {
       expect(aNodes.length, 1, reason: 'dt 下直接找 a 应为 1，实际 ' + aNodes.length.toString());
       final imgInA = RuleEngine.selectNodesFrom(aNodes.first, 'tag.img');
       expect(imgInA.length, 1, reason: 'a 下直接找 img 应为 1，实际 ' + imgInA.length.toString());
+      final twoStep = RuleEngine.selectNodesFrom(dtNodes.first, 'tag.a@tag.img');
+      expect(twoStep.length, 1, reason: 'dt 下两步 a@img 应为 1，实际 ' + twoStep.length.toString() + ' / 一步 a=' + aNodes.length.toString());
+      final threeStep = RuleEngine.selectNodesFrom(first, 'tag.dt@tag.a@img');
+      expect(threeStep.length, 1, reason: 'dl 下三步 dt@a@img 应为 1，实际 ' + threeStep.length.toString());
       final imgNodes2 = RuleEngine.selectNodesFrom(first, 'tag.dt@tag.a@img');
       expect(imgNodes2.length, 1, reason: '组合规则 dt@a@img 应为 1，实际 ' + imgNodes2.length.toString());
       final imgNodes = RuleEngine.selectNodesFrom(first, 'tag.dt@tag.a@img');
