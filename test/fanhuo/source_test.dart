@@ -104,7 +104,7 @@ void main() {
       final imgNode = RuleEngine.pickIn(first, doc, 'tag.dt@tag.a@img');
       expect(imgNode, isNull); // img 没有文本，说明 pickIn 只管选择+值，不返回节点
       final srcNode = RuleEngine.selectNodes(doc, 'class.sitembox.0@tag.dt@tag.a@img');
-      expect(srcNode.length, 1, reason: 'dt→a→img 应该 1 个');
+      expect(srcNode.length, 1, reason: 'dt→a→img 应该 1 个；sheet=\ dl=\ dt=\');
       expect(RuleEngine.valueOf(srcNode.first, 'tag.img@src'), '/img/1.jpg');
     });
 
