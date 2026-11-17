@@ -57,11 +57,25 @@ if (/^\d+\.\d+\.\d+$/.test(arg)) {
   }
 }
 
-if (versionCode(next) <= versionCode(current)) {
-  console.error(`新 versionCode ${versionCode(next)} 没有大于旧值 ${versionCode(current)}`);
+// CI 里 `bump-version.js "$(cat VERSION)"` 是「同步」用法：传入的就是当前版本，
+// 这时只需要把 VERSION 写进 pubspec / version.properties，不算降级，不能报错。
+const same = next === current;
+if (!same && versionCode(next) < versionCode(current)) {
+  console.error(
+    `新 versionCode ${versionCode(next)} 小于旧值 ${versionCode(current)}，版本号不能往回走`,
+  );
   process.exit(1);
 }
 
 writeVersion(next);
-console.log(`${current} -> ${next}（versionCode ${versionCode(next)}）`);
-console.log('别忘了在 CHANGELOG.md 补一节：## [' + next + '] - ' + new Date().toISOString().slice(0, 10));
+if (same) {
+  console.log(`版本未变：${current}（versionCode ${versionCode(current)}），已同步到 pubspec`);
+} else {
+  console.log(`${current} -> ${next}（versionCode ${versionCode(next)}）`);
+  console.log(
+    '别忘了在 CHANGELOG.md 补一节：## [' +
+      next +
+      '] - ' +
+      new Date().toISOString().slice(0, 10),
+  );
+}
