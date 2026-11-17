@@ -100,10 +100,14 @@ void main() {
       expect(RuleEngine.pickIn(first, doc, 'tag.dd@tag.h3@tag.a@href'), '/book/1/');
       expect(RuleEngine.pickIn(first, doc, 'class.book_other.0@tag.span.0@text'), '烽火戏诸侯');
       expect(RuleEngine.pickIn(first, doc, 'class.book_des@text'), '一个少年提剑下山的故事。');
-      // 属性取值：先用选择器拿到节点，再对节点取 @src —— 这才是「已经选中的节点」
-      final imgNodes = RuleEngine.selectNodesFrom(first, 'tag.dt@tag.a@img');
-      expect(imgNodes.length, 1, reason: 'dl 里 dt>a>img 应该 1 个');
-      expect(RuleEngine.valueOf(imgNodes.first, 'tag.img@src'), '/img/1.jpg');
+      // 逐级下钻（每一步都是相对当前节点），再从 img 节点取 @src
+      final dt = RuleEngine.selectNodesFrom(first, 'tag.dt');
+      expect(dt.length, 1, reason: 'dl 下应有 1 个 dt');
+      final anchor = RuleEngine.selectNodesFrom(dt.first, 'tag.a');
+      expect(anchor.length, 1, reason: 'dt 下应有 1 个 a');
+      final img = RuleEngine.selectNodesFrom(anchor.first, 'tag.img');
+      expect(img.length, 1, reason: 'a 下应有 1 个 img');
+      expect(RuleEngine.valueOf(img.first, 'tag.img@src'), '/img/1.jpg');
     });
 
     test('负索引取末尾元素', () {
