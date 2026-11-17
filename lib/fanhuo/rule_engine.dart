@@ -91,25 +91,25 @@ abstract final class RuleEngine {
     }
     if (values.isEmpty) return null;
     var joined = all ? values.join('\n') : values.first;
-    if (rule.extract != null) {
-      RegExp re;
-      try {
-        re = RegExp(rule.extract!);
-      } catch (error) {
-        throw RuleSyntaxError(rawRule, '正则编译失败：$error');
-      }
-      if (rule.replace != null) {
-        joined = joined.replaceAllMapped(
-          re,
-          (m) => _expandGroups(rule.replace!, m),
-        );
-        joined = joined.trim();
-      } else {
-        final match = re.firstMatch(joined);
-        joined = match == null ? '' : match.group(0)!.trim();
-      }
-    }
+    joined = _applyExtract(rawRule, rule, joined);
     return joined.trim().isEmpty ? null : joined.trim();
+  }
+
+  /// 提炼规则：阅读里 `##正则` 是**排除**（删掉匹配到的部分），
+  /// `##正则##替换` 是**匹配后替换**。没有替换段时按删除处理。
+  static String _applyExtract(String rawRule, ParsedRule rule, String value) {
+    if (rule.extract == null) return value;
+    RegExp re;
+    try {
+      re = RegExp(rule.extract!);
+    } catch (error) {
+      throw RuleSyntaxError(rawRule, '正则编译失败：$error');
+    }
+    final replacement = rule.replace ?? '';
+    if (replacement.isEmpty) {
+      return value.replaceAll(re, '');
+    }
+    return value.replaceAllMapped(re, (m) => _expandGroups(replacement, m));
   }
 
   /// 取多节点（列表型规则，比如搜索结果的 bookList / 目录的 chapterList）。
@@ -130,17 +130,7 @@ abstract final class RuleEngine {
     if (nodes.isEmpty) return null;
     var value = _valueOf(nodes.first, rule.selector, base);
     if (value == null) return null;
-    if (rule.extract != null) {
-      final re = RegExp(rule.extract!);
-      if (rule.replace != null) {
-        value = value
-            .replaceAllMapped(re, (m) => _expandGroups(rule.replace!, m))
-            .trim();
-      } else {
-        final m = re.firstMatch(value);
-        value = m == null ? '' : m.group(0)!.trim();
-      }
-    }
+    value = _applyExtract(rawRule, rule, value);
     return value.trim().isEmpty ? null : value.trim();
   }
 
@@ -211,24 +201,38 @@ abstract final class RuleEngine {
         index = parsed;
         if (parts.length > 2) name = parts.sublist(1, parts.length - 1).join('.');
       } else {
+        // 属性步不该走到这里（_walk 里已经 break），保险起见按名字处理
         name = parts.sublist(1).join('.');
       }
     }
+    // 正索引先按文档序一遍过；负索引 / 带名字的 text 步才需要完整列表。
+    // 用 `take(index + 1)` 提前收敛，避免对整棵树 selector 全量匹配。
+
+    List<dom.Node> collect(Iterable<dom.Element> candidates) {
+      final out = <dom.Node>[];
+      for (final element in candidates) {
+        if (index != null && index >= 0 && out.length > index) break;
+        out.add(element);
+        if (index != null && index >= 0 && out.length > index) break;
+      }
+      return out;
+    }
+
     List<dom.Node> result;
     switch (kind) {
       case 'class':
         result = node is dom.Element
-            ? node.querySelectorAll('.${_escapeIdent(name ?? '')}')
+            ? collect(node.querySelectorAll('.${_escapeIdent(name ?? '')}'))
             : const [];
         break;
       case 'id':
         result = node is dom.Element
-            ? node.querySelectorAll('#${_escapeIdent(name ?? '')}')
+            ? collect(node.querySelectorAll('#${_escapeIdent(name ?? '')}'))
             : const [];
         break;
       case 'tag':
         result = node is dom.Element
-            ? node.querySelectorAll(name ?? '*')
+            ? collect(node.querySelectorAll(name ?? '*'))
             : const [];
         break;
       case 'children':
@@ -264,19 +268,10 @@ abstract final class RuleEngine {
   static String? _valueOf(dom.Node node, String selector, String base) {
     final lastStep = selector.split('@').last.trim();
     if (node is dom.Element) {
-      switch (lastStep) {
-        case 'text':
-        case 'ownText':
-          return node.text;
-        case 'html':
-        case 'all':
-          return node.innerHtml;
-        case 'attr':
-          return node.attributes.values.firstOrNull;
-      }
+      if (lastStep == 'text' || lastStep == 'ownText') return node.text;
+      if (lastStep == 'html' || lastStep == 'all') return node.innerHtml;
       if (_attributes.contains(lastStep)) {
-        var raw = node.attributes[lastStep];
-        if (raw == null && lastStep == 'href') raw = node.attributes['href'];
+        final raw = node.attributes[lastStep];
         if (raw == null) return null;
         return _absolute(raw, base);
       }

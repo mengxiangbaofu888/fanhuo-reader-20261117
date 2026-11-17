@@ -114,14 +114,15 @@ void main() {
       expect(RuleEngine.pick(doc, '@css:.book_des'), contains('少年提剑'));
     });
 
-    test('##正则##替换 提炼规则', () {
+    /// ##正则（无第三个 `##` 段）是**排除**语义：匹配到的部分被删掉。
+  /// ##正则##替换 才是「匹配后替换」。
+  test('##正则##替换 提炼规则', () {
       final doc = RuleEngine.parseHtml('<div id="x">广告正文内容删掉</div>');
-      expect(RuleEngine.pick(doc, 'id.x@text##广告|删掉'), '正文内容');
+      expect(RuleEngine.pick(doc, 'id.x@text##广告|删掉##'), '正文内容');
     });
 
-    test('##正则（无替换）只保留匹配段', () {
+    test('##正则（无替换）是删除语义，不是「只保留匹配」', () {
       final doc = RuleEngine.parseHtml('<h1>《剑来》最新章节</h1>');
-      // 注意：Dart 的 RegExp 用的是 re 语法，中文没有特殊含义
       expect(RuleEngine.pick(doc, 'tag.h1@text##《|》.*'), '剑来');
     });
 
@@ -236,7 +237,7 @@ void main() {
 
     test('单源超时被兜住，不影响别的源', () async {
       Future<String> slowFetch(SearchRequest request, {String? header}) async {
-        if (request.url.contains('second')) {
+        if (request.url.contains('second.com')) {
           await Future<void>.delayed(const Duration(seconds: 5));
         }
         return _sampleHtml;
@@ -256,7 +257,7 @@ void main() {
 
     test('单源抛异常只影响它自己', () async {
       Future<String> brokenFetch(SearchRequest request, {String? header}) async {
-        if (request.url.contains('second')) throw StateError('网络炸了');
+        if (request.url.contains('second.com')) throw StateError('网络炸了');
         return _sampleHtml;
       }
 

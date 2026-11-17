@@ -113,6 +113,23 @@ class AiConfig {
 
   bool get usable => baseUrl.isNotEmpty && model.isNotEmpty && (apiKey.isNotEmpty || providerId == 'ollama');
 
+  /// 实际生效的 Base URL：用户没填（或填了空串）就回落到厂商默认。
+  ///
+  /// 设置页允许「留空表示用默认」，所以这一步必须在 [AiConfig] 里做，
+  /// 不能指望调用方每次都把默认值抄进来。
+  AiConfig resolveBaseUrl(AiProvider provider) {
+    if (baseUrl.isNotEmpty) return this;
+    if (provider.baseUrl.isEmpty) return this;
+    return AiConfig(
+      providerId: providerId,
+      baseUrl: provider.baseUrl,
+      model: model,
+      apiKey: apiKey,
+      maxOutputTokens: maxOutputTokens,
+      temperature: temperature,
+    );
+  }
+
   Map<String, Object?> toJson() => {
         'providerId': providerId,
         'baseUrl': baseUrl,
@@ -485,16 +502,22 @@ class Proofreader {
   final HttpPost post;
   final ProofreadTask task;
 
+  /// 用户没填 Base URL 时回落到厂商默认，所有出网前的最后一道归一化。
+  AiConfig get _effective => config.resolveBaseUrl(provider);
+
   /// 单段文本纠错（选中一段 → AI 纠错）。
   Future<ProofreadResult> proofread(List<String> paragraphs) async {
-    if (!config.usable) throw const AiError('AI 未配置：缺少 Base URL / 模型 / API Key');
+    final effective = _effective;
+    if (!effective.usable) {
+      throw const AiError('AI 未配置：缺少 Base URL / 模型 / API Key');
+    }
     final batches = task.chunk(paragraphs);
     final parsed = <List<TextSegment>>[];
     final rawBuffer = StringBuffer();
     for (final batch in batches) {
       final request = buildRequest(
         provider: provider,
-        config: config,
+        config: effective,
         systemPrompt: ProofreadTask.systemPrompt,
         userPrompt: task.buildUserPrompt(batch),
       );
@@ -513,7 +536,7 @@ class Proofreader {
   Future<String> ping() async {
     final request = buildRequest(
       provider: provider,
-      config: config,
+      config: effective,
       systemPrompt: '你是一个回声器，只回一个字：好',
       userPrompt: '在吗',
     );
