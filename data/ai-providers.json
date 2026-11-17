@@ -1,0 +1,183 @@
+{
+  "version": 1,
+  "updatedAt": "2026-11-17",
+  "note": "全部走 OpenAI 兼容的 /chat/completions；anthropic / gemini 由适配层做协议转换。key 只存本机，不上传、不写日志、不进备份。",
+  "providers": [
+    {
+      "id": "deepseek",
+      "label": "DeepSeek 深度求索",
+      "kind": "openai",
+      "baseUrl": "https://api.deepseek.com/v1",
+      "models": ["deepseek-chat", "deepseek-reasoner"],
+      "defaultModel": "deepseek-chat",
+      "keyHint": "sk-…（platform.deepseek.com）",
+      "contextTokens": 65536,
+      "cn": true
+    },
+    {
+      "id": "kimi",
+      "label": "Kimi 月之暗面",
+      "kind": "openai",
+      "baseUrl": "https://api.moonshot.cn/v1",
+      "models": ["kimi-k2-0905-preview", "kimi-k2-turbo-preview", "moonshot-v1-32k", "moonshot-v1-128k"],
+      "defaultModel": "moonshot-v1-32k",
+      "keyHint": "sk-…（platform.moonshot.cn）",
+      "contextTokens": 131072,
+      "cn": true
+    },
+    {
+      "id": "zhipu",
+      "label": "智谱 GLM",
+      "kind": "openai",
+      "baseUrl": "https://open.bigmodel.cn/api/paas/v4",
+      "models": ["glm-4.6", "glm-4-flash", "glm-4-air", "glm-4v-flash"],
+      "defaultModel": "glm-4-flash",
+      "keyHint": "xxxxxx.xxxxxx（bigmodel.cn）",
+      "contextTokens": 131072,
+      "cn": true
+    },
+    {
+      "id": "qwen",
+      "label": "通义千问（阿里百炼）",
+      "kind": "openai",
+      "baseUrl": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+      "models": ["qwen-max", "qwen-plus", "qwen-turbo", "qwen-long"],
+      "defaultModel": "qwen-plus",
+      "keyHint": "sk-…（dashscope.console.aliyun.com）",
+      "contextTokens": 131072,
+      "cn": true
+    },
+    {
+      "id": "doubao",
+      "label": "豆包（火山方舟）",
+      "kind": "openai",
+      "baseUrl": "https://ark.cn-beijing.volces.com/api/v3",
+      "models": ["doubao-seed-1-6-250615", "doubao-1-5-pro-32k-250115"],
+      "defaultModel": "doubao-seed-1-6-250615",
+      "keyHint": "方舟「接入点/Endpoint ID」或 API Key（console.volces.com）",
+      "contextTokens": 131072,
+      "cn": true
+    },
+    {
+      "id": "mimo",
+      "label": "MiMo（小米）",
+      "kind": "openai",
+      "baseUrl": "https://api.xiaomi.com/v1",
+      "models": ["mimo-7b-rl", "mimo-vl-7b-rl"],
+      "defaultModel": "mimo-7b-rl",
+      "keyHint": "小米开放平台 API Key（Base URL 按官方文档填入设置页）",
+      "contextTokens": 32768,
+      "cn": true
+    },
+    {
+      "id": "hunyuan",
+      "label": "腾讯混元",
+      "kind": "openai",
+      "baseUrl": "https://api.hunyuan.cloud.tencent.com/v1",
+      "models": ["hunyuan-turbos-latest", "hunyuan-standard"],
+      "defaultModel": "hunyuan-turbos-latest",
+      "keyHint": "sk-…（console.cloud.tencent.com/hunyuan）",
+      "contextTokens": 32768,
+      "cn": true
+    },
+    {
+      "id": "minimax",
+      "label": "MiniMax",
+      "kind": "openai",
+      "baseUrl": "https://api.minimax.chat/v1",
+      "models": ["abab6.5s-chat", "abab6.5g-chat"],
+      "defaultModel": "abab6.5s-chat",
+      "keyHint": "…（platform.minimaxi.com）",
+      "contextTokens": 245760,
+      "cn": true
+    },
+    {
+      "id": "openai",
+      "label": "OpenAI",
+      "kind": "openai",
+      "baseUrl": "https://api.openai.com/v1",
+      "models": ["gpt-4o-mini", "gpt-4o", "gpt-4.1-mini", "o4-mini"],
+      "defaultModel": "gpt-4o-mini",
+      "keyHint": "sk-…（platform.openai.com）",
+      "contextTokens": 128000,
+      "cn": false
+    },
+    {
+      "id": "claude",
+      "label": "Anthropic Claude",
+      "kind": "anthropic",
+      "baseUrl": "https://api.anthropic.com/v1",
+      "models": ["claude-sonnet-4-5", "claude-haiku-4-5", "claude-opus-4-1"],
+      "defaultModel": "claude-haiku-4-5",
+      "keyHint": "sk-ant-…（console.anthropic.com）",
+      "contextTokens": 200000,
+      "cn": false
+    },
+    {
+      "id": "gemini",
+      "label": "Google Gemini",
+      "kind": "gemini",
+      "baseUrl": "https://generativelanguage.googleapis.com/v1beta",
+      "models": ["gemini-2.5-flash", "gemini-2.5-pro", "gemini-2.0-flash"],
+      "defaultModel": "gemini-2.5-flash",
+      "keyHint": "AIza…（aistudio.google.com/apikey）",
+      "contextTokens": 1048576,
+      "cn": false
+    },
+    {
+      "id": "grok",
+      "label": "xAI Grok",
+      "kind": "openai",
+      "baseUrl": "https://api.x.ai/v1",
+      "models": ["grok-4-fast", "grok-4", "grok-3-mini"],
+      "defaultModel": "grok-4-fast",
+      "keyHint": "xai-…（console.x.ai）",
+      "contextTokens": 131072,
+      "cn": false
+    },
+    {
+      "id": "mistral",
+      "label": "Mistral",
+      "kind": "openai",
+      "baseUrl": "https://api.mistral.ai/v1",
+      "models": ["mistral-large-latest", "mistral-small-latest"],
+      "defaultModel": "mistral-small-latest",
+      "keyHint": "…（console.mistral.ai）",
+      "contextTokens": 131072,
+      "cn": false
+    },
+    {
+      "id": "openrouter",
+      "label": "OpenRouter（聚合）",
+      "kind": "openai",
+      "baseUrl": "https://openrouter.ai/api/v1",
+      "models": ["deepseek/deepseek-chat", "google/gemini-2.5-flash", "anthropic/claude-haiku-4-5", "qwen/qwen-2.5-72b-instruct"],
+      "defaultModel": "deepseek/deepseek-chat",
+      "keyHint": "sk-or-…（openrouter.ai/keys）",
+      "contextTokens": 131072,
+      "cn": false
+    },
+    {
+      "id": "ollama",
+      "label": "Ollama（本地）",
+      "kind": "openai",
+      "baseUrl": "http://127.0.0.1:11434/v1",
+      "models": ["qwen2.5:7b", "llama3.1:8b"],
+      "defaultModel": "qwen2.5:7b",
+      "keyHint": "本地模型不需要 key，可留空",
+      "contextTokens": 32768,
+      "cn": true
+    },
+    {
+      "id": "custom",
+      "label": "自定义（OpenAI 兼容）",
+      "kind": "openai",
+      "baseUrl": "",
+      "models": [],
+      "defaultModel": "",
+      "keyHint": "任意兼容 /chat/completions 的服务",
+      "contextTokens": 32768,
+      "cn": true
+    }
+  ]
+}

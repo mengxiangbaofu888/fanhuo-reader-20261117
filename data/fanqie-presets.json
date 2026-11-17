@@ -1,0 +1,101 @@
+{
+  "source": "com.dragon.read 7.3.7.33 / resources.arsc",
+  "extractedAt": "2026-11-17",
+  "evidence": "res/values/colors.xml: reader_{white,yellow,green,blue,black}_theme_bg_light",
+  "papers": {
+    "white": "#d7d7db",
+    "yellow": "#f7e4cf",
+    "green": "#c9decb",
+    "blue": "#c2def0",
+    "black": "#262626"
+  },
+  "fontSizeLevels": [
+    "小",
+    "适中",
+    "大"
+  ],
+  "fontSizesSp": [
+    15,
+    18,
+    21
+  ],
+  "lineSpacingLevels": [
+    "紧凑",
+    "标准",
+    "宽松"
+  ],
+  "lineSpacingFactor": [
+    1.4,
+    1.7,
+    2.0
+  ],
+  "paragraphSpacingLevels": [
+    "紧凑",
+    "标准",
+    "宽松"
+  ],
+  "paragraphSpacingSp": [
+    4,
+    8,
+    14
+  ],
+  "pageTurnModes": [
+    {
+      "id": "simulation",
+      "label": "仿真",
+      "note": "左右翻页，书页卷曲跟随手势（string/f6w）"
+    },
+    {
+      "id": "cover",
+      "label": "覆盖",
+      "note": "左右翻页，新页覆盖旧页（string/f7p）"
+    },
+    {
+      "id": "slide",
+      "label": "平滑",
+      "note": "左右翻页，整页平移（默认档）"
+    },
+    {
+      "id": "none",
+      "label": "无动画",
+      "note": "左右翻页，瞬切（string/drq）"
+    }
+  ],
+  "tapPaging": {
+    "id": "tap",
+    "label": "点击屏幕翻页",
+    "evidence": "string/bcb"
+  },
+  "volumePaging": {
+    "id": "volume",
+    "label": "音量键翻页",
+    "evidence": "string/bcc"
+  },
+  "eyeProtection": {
+    "label": "护眼模式",
+    "evidence": "string/ee8,b9s,dw0"
+  },
+  "smartMargin": {
+    "label": "智能匹配页边距",
+    "evidence": "string/dxv"
+  },
+  "readingLayout": {
+    "colorCard": {
+      "widthDp": 52,
+      "heightDp": 28,
+      "count": 5,
+      "evidence": "res/layout/e08.xml: ipi..ipc 52dp×28dp"
+    },
+    "optionStrip": {
+      "heightDp": 32,
+      "evidence": "res/layout/e08.xml / arf.xml MultipleOptionsView 32dp"
+    },
+    "titleHeightDp": 56,
+    "titleHeightDpAlt": 48,
+    "panelPaddingBottomDp": 40,
+    "sectionLabelSizeSp": 12,
+    "optionTextSizeSp": 14,
+    "titleTextSizeSp": 18
+  },
+  "readerColorsFromFacts": true
+}

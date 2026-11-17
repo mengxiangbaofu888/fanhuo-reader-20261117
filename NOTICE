@@ -1,0 +1,72 @@
+番茄阅读 Pro · Fanhuo Reader
+================================
+
+本项目是 Wenku8_Flutter 的衍生作品，整体以 GNU GPL v3 分发。
+
+上游声明
+--------
+
+Wenku8 Flutter
+Based on MewX/light-novel-library_Wenku8_Android and its contributors.
+https://github.com/MewX/light-novel-library_Wenku8_Android
+
+上游原始项目采用「GNU GPL v2 或后续版本」，
+本 Flutter 分支按 GNU GPL v3 分发（见 assets/licenses/GPL-3.0.txt 与 LICENSE）。
+上游 NOTICE 与 LICENSE 原样保留于 _wenku_base/。
+
+本项目的改动
+-----------
+
+在 _wenku_base/ 之上**只做追加**，除下列三处外不改动上游任何代码：
+
+1. pubspec.yaml：flutter.assets 增加 assets/fanhuo/
+2. android/app/build.gradle.kts：applicationId → com.fanhuo.reader，
+   manifestPlaceholders["wenkuAppLabel"] → 番茄阅读 Pro
+   （namespace 保持 org.mewx.wenku8_flutter 不动，因为 Kotlin 包的 package 声明是写死的）
+3. pubspec.yaml 的 version 行由 scripts/bump-version.js 同步为 VERSION+N
+
+追加内容（lib/fanhuo/ 与 assets/fanhuo/）为本项目原创，同样以 GPL v3 授权。
+追加代码见 git 历史。
+
+来自第三方应用的数据
+-------------------
+
+本项目从两个安装包中提取了**数值与规则数据**，不含任何字节码、资源图、字体或商标：
+
+A. 番茄免费小说 7.3.7.33 (com.dragon.read)
+   提取内容：res/values/colors.xml 中的 5 个 reader_*_theme_bg_light 颜色值、
+   res/values/strings.xml 与 arrays.xml 中的档位文案、
+   res/layout/{e08,arf,atp,aq4,ame}.xml 中的 dp/sp 尺寸。
+   这些是事实性的数值与尺寸，不可版权化。番茄的代码、图片、字体、名称、图标一律未使用。
+   「番茄」是字节跳动旗下产品的商标，本项目与之无任何关联，也未获其授权或背书。
+
+B. 旷野书屋 1.5.3 (com.yystv.www)
+   提取内容：assets/defaultData/bookSources.json，133 条阅读格式书源规则。
+   该文件是书源站公开规则的集合，随上游应用以 assets 形式分发；
+   本项目将其作为数据随附，不主张对规则内容的著作权。
+   旷野书屋自带的广告 SDK、书封墙运营数据、字体与图标一律未使用。
+
+C. 轻小说文库 / Wenku8_Flutter (org.mewx.wenku8_flutter)
+   只作为代码底座使用，见上面的上游声明。
+   上游的私有 libcpp.so API runtime 不在公开源码里，本项目也不链接它——
+   本项目用自己的书源引擎取正文，不依赖上游的正文通道。
+
+字体
+----
+
+Source Han Serif CN Regular/Bold：Copyright Adobe，SIL Open Font License 1.1，
+随底座分发，原样未改，见 assets/fonts/OFL-SourceHanSerif.txt。
+
+第三方组件
+----------
+
+沿用底座的全部依赖，许可证清单见 _wenku_base/assets/licenses/。
+本项目新增代码不引入任何新的第三方 Dart 包（只用 dart:convert 与 Flutter 自带的 html 包）。
+
+免责
+----
+
+本项目是个人阅读工具，不提供、不托管、不分发任何书籍内容。
+书源指向的站点均为第三方公开站点，其内容合法性由各站点自负；
+书源的可用性随站点改版而变化，失效属正常现象。
+AI 纠错需要用户自备厂商 API key，产生的费用由用户自行承担。

@@ -1,0 +1,13 @@
+node_modules/
+.pub-cache/
+.dart_tool/
+build/
+dist/
+*.log
+.env
+key.properties
+*.jks
+*.keystore
+_wenku_base/
+artifacts/*.apk
+artifacts/*.zip
