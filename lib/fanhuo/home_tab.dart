@@ -14,7 +14,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../app_ui.dart';
-import '../archive_design.dart';
 import 'fanhuo_home.dart';
 import 'fanqie_settings.dart';
 import 'multi_source_search.dart';
