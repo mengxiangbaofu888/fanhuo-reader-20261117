@@ -193,7 +193,7 @@ abstract final class RuleEngine {
       final step = steps[i].trim();
       if (step.isEmpty) continue;
       final isLast = i == steps.length - 1;
-      if (isLast && _isAttribute(step)) break; // 属性在 _valueOf 里处理
+      if (isLast && _isAttributeStep(step)) break; // 取值步交给 _valueOf
       final next = <dom.Node>[];
       for (final node in current) {
         next.addAll(_applyStep(node, step));
@@ -210,7 +210,14 @@ abstract final class RuleEngine {
     'contentUrl', 'textHtml',
   };
 
-  static bool _isAttribute(String step) => _attributes.contains(step);
+  /// `@text` / `@src` 这种「取值步」不是选择步。
+  ///
+  /// 只有 `@` 之后**裸写**的才是取值（`tag.a@href`）；
+  /// 带点的一律是选择（`tag.a@tag.img`、`class.foo.0@tag.span`）——
+  /// 否则 `tag.img` 会被当成「取属性 img」，整条链在最后一步被吞掉。
+  static bool _isAttributeStep(String step) {
+    return _attributes.contains(step) && !step.contains('.');
+  }
 
   static List<dom.Node> _applyStep(dom.Node node, String step) {
     // 形如 class.foo / id.bar / tag.div / text.下一页，尾部 .n 是索引
