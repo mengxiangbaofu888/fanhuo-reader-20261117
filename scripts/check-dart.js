@@ -133,16 +133,21 @@ function lineOf(source, index) {
 function checkImports(file, source) {
   const problems = [];
   const BASE_LIB = path.join(ROOT, '_wenku_base', 'lib');
+  const BASE_WIDGETS = path.join(ROOT, '_wenku_base'); // 上游还可能从包根引（如 'package:wenku8_flutter/x.dart'）
   const importRe = /^\s*import\s+'([^']+)'/gm;
   let m;
   while ((m = importRe.exec(source))) {
     const target = m[1];
+    // package: 引用由 pubspec + flutter analyze 保证，这里不管
     if (!target.startsWith('.') && !target.startsWith('/')) continue;
     const resolved = path.resolve(path.dirname(file), target);
     if (fs.existsSync(resolved)) continue;
-    // 放宽：目标可能在底座里（../xxx.dart 指向上游 lib/xxx.dart）
+    // 放宽一：目标可能在底座里（`../app_ui.dart` → 上游 lib/app_ui.dart）
     const upstream = path.join(BASE_LIB, path.basename(target));
     if (fs.existsSync(upstream)) continue;
+    // 放宽二：底座还没拉（CI 的 check-version 关不跑 prepare-base）。
+    // 这时无法判定，跳过而不是误报 —— 真正的 analyze 在 test 关会兜住。
+    if (!fs.existsSync(BASE_LIB)) continue;
     problems.push(`import 指向不存在的文件：${target}`);
   }
   return problems;
