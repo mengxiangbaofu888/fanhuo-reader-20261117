@@ -103,6 +103,14 @@ void main() {
       // 属性取值：先用选择器拿到节点，再对节点取 @src —— 这才是「已经选中的节点」
       final imgNode = RuleEngine.pickIn(first, doc, 'tag.dt@tag.a@img');
       expect(imgNode, isNull); // img 没有文本，说明 pickIn 只管选择+值，不返回节点
+      final dtNodes = RuleEngine.selectNodesFrom(first, 'tag.dt');
+      expect(dtNodes.length, 1, reason: 'dl 下直接找 dt 应为 1，实际 ' + dtNodes.length.toString());
+      final aNodes = RuleEngine.selectNodesFrom(dtNodes.first, 'tag.a');
+      expect(aNodes.length, 1, reason: 'dt 下直接找 a 应为 1，实际 ' + aNodes.length.toString());
+      final imgInA = RuleEngine.selectNodesFrom(aNodes.first, 'tag.img');
+      expect(imgInA.length, 1, reason: 'a 下直接找 img 应为 1，实际 ' + imgInA.length.toString());
+      final imgNodes2 = RuleEngine.selectNodesFrom(first, 'tag.dt@tag.a@img');
+      expect(imgNodes2.length, 1, reason: '组合规则 dt@a@img 应为 1，实际 ' + imgNodes2.length.toString());
       final imgNodes = RuleEngine.selectNodesFrom(first, 'tag.dt@tag.a@img');
       expect(imgNodes.length, 1, reason: 'dl 里 dt>a>img 应该 1 个，实际 ' + imgNodes.length.toString());
       expect(RuleEngine.valueOf(imgNodes.first, 'tag.img@src'), '/img/1.jpg');
