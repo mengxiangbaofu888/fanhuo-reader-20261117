@@ -111,18 +111,18 @@ void main() {
 
   group('三种协议的请求构造', () {
     test('OpenAI 兼容：Bearer + messages', () {
+      // 设置页允许用户留空 Base URL = 用厂商默认，出网前必须由 resolveBaseUrl 回填
       final cfg = _config('deepseek-chat');
+      expect(cfg.baseUrl, isEmpty);
+      expect(cfg.usable, isFalse, reason: '空 baseUrl 不能直接发请求');
+      expect(cfg.resolveBaseUrl(_deepseek).baseUrl, 'https://api.deepseek.com/v1');
       final request = buildRequest(
         provider: _deepseek,
-        config: cfg,
+        config: cfg.resolveBaseUrl(_deepseek),
         systemPrompt: 'sys',
         userPrompt: 'usr',
       );
-      expect(
-        request.url,
-        'https://api.deepseek.com/v1/chat/completions',
-        reason: 'diag cfg.baseUrl=「${cfg.baseUrl}」 provider.baseUrl=「${_deepseek.baseUrl}」',
-      );
+      expect(request.url, 'https://api.deepseek.com/v1/chat/completions');
       expect(request.headers['Authorization'], 'Bearer sk-test');
       final body = jsonDecode(request.body) as Map<String, dynamic>;
       expect(body['model'], 'deepseek-chat');
@@ -133,7 +133,7 @@ void main() {
     test('Anthropic：x-api-key + 顶层 system', () {
       final request = buildRequest(
         provider: _claude,
-        config: _config('claude-haiku-4-5', key: 'sk-ant-x'),
+        config: _config('claude-haiku-4-5', key: 'sk-ant-x').resolveBaseUrl(_claude),
         systemPrompt: 'sys',
         userPrompt: 'usr',
       );
@@ -249,7 +249,7 @@ void main() {
       ]);
       final reader = Proofreader(
         provider: _deepseek,
-        config: _config('deepseek-chat'),
+        config: _config('deepseek-chat').resolveBaseUrl(_deepseek),
         post: fake.call,
       );
       final result = await reader.proofread(['他的的脸红了', '天亮了，他起??床']);
@@ -262,7 +262,7 @@ void main() {
       final fake = FakePost([_ok(_openAi('我帮你改好了：他的脸红了'))]);
       final reader = Proofreader(
         provider: _deepseek,
-        config: _config('deepseek-chat'),
+        config: _config('deepseek-chat').resolveBaseUrl(_deepseek),
         post: fake.call,
       );
       expect(
@@ -275,7 +275,7 @@ void main() {
       final fake = FakePost([const HttpResponse(401, '{"error":"bad key"}')]);
       final reader = Proofreader(
         provider: _deepseek,
-        config: _config('deepseek-chat'),
+        config: _config('deepseek-chat').resolveBaseUrl(_deepseek),
         post: fake.call,
       );
       try {
@@ -306,7 +306,7 @@ void main() {
       final fake = FakePost([_ok(_anthropic('好'))]);
       final reader = Proofreader(
         provider: _claude,
-        config: _config('claude-haiku-4-5', key: 'sk-ant-x'),
+        config: _config('claude-haiku-4-5', key: 'sk-ant-x').resolveBaseUrl(_claude),
         post: fake.call,
       );
       expect(await reader.ping(), '好');
