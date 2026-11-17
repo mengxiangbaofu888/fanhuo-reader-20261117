@@ -44,6 +44,10 @@ class BookSourceRepository {
   List<PackedSource> get all => _all;
   int get length => _all.length;
 
+  /// 直接给一批已打包的书源（开关状态过滤后用）。
+  factory BookSourceRepository.fromPacked(List<PackedSource> packed) =>
+      BookSourceRepository._(List<PackedSource>.unmodifiable(packed));
+
   /// 从 JSON 文本构建。格式：数组，每项是 BookSource 字段 + 可选 `sourcePack`。
   static BookSourceRepository parse(String rawJson) {
     final decoded = jsonDecode(rawJson);

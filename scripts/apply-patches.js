@@ -174,4 +174,19 @@ if (fs.existsSync(testSrc)) {
   }
 }
 
+/* ---------- 6. 导航挂载（挂法 2 + 挂法 3） ---------- */
+{
+  log('开始挂导航（scripts/patch-navigation.js）');
+  try {
+    execFileSync(process.execPath, [path.join(ROOT, 'scripts', 'patch-navigation.js')], {
+      cwd: ROOT,
+      stdio: 'inherit',
+      env: { ...process.env, WENKU_BASE: BASE },
+    });
+  } catch {
+    console.error('[apply-patches] 导航挂载失败，见上方 [patch-nav] 输出');
+    process.exit(1);
+  }
+}
+
 log('注入完成。');

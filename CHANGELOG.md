@@ -2,6 +2,44 @@
 
 本项目版本号遵循 `主.次.补`，`versionCode = 主*10000 + 次*100 + 补`。
 
+## [1.2.0] - 2026-11-17
+
+这一版把「书源」真正挂进 App：底部多一个 tab（挂法 2），首屏内容源连不上时顶部出现提示条（挂法 3）。
+
+### 新增
+
+- **底部第五个 tab「书源」**：`HomeShell` 的 dock 从 4 个变 5 个，
+  `home_navigation.dart` 的三条分支（默认 / 离线 / 合并书架）都保留索引 4，
+  所以离线、本地模式、合并书架下都能进
+- **首屏可用性提示条** `HomeHealthBanner`：启动后异步探一次上游内容源，
+  连不上就在顶部贴一条「上游内容源连不上（缺私有 libcpp.so）。书源搜书不受影响。」
+  带「去书源」一键跳到第 5 个 tab，可关闭
+- **书源运行时** `source_bootstrap.dart`：
+  - 11.5 MB 书源包 >2 MB 走 `compute` isolate 解析，不卡首帧
+  - 开关状态存 SharedPreferences（按域名，不存整条规则）
+  - HTTP 抓取带三级 charset 判定（响应头 → 书源声明 → 内容嗅探），GBK 站点靠这个
+- **GBK 兜底解码** `gbk_tables.dart`：`decodeGbk` + `looksLikeGbk`，
+  解不出的字输出 `□`，可用 AI 纠错补上下文
+
+### 修复
+
+- `BookSourceRepository` 补 `fromPacked()` 工厂（开关过滤后重建仓库用）
+- `source_repository.dart` 的 `_ruleHasJs` 签名统一为单条 `SourceRule`
+
+### 实现说明
+
+改动全部集中在 `scripts/patch-navigation.js`，对上游只做锚点替换：
+
+| 文件 | 改动 |
+|---|---|
+| `lib/pages.dart` | dock 加项、字段加 `_fanhuoPage`、`_pageWidgets`/`_headers` 各追加一项、监听 `openRequests` |
+| `lib/home_navigation.dart` | `tabs` 三条分支加索引 4 |
+| `lib/main.dart` | `FanhuoSourceBootstrap.start()` + `home:` 外包 `HomeHealthBanner` |
+
+每处锚点都校验，找不到就退出，不会静默出一个没挂上的包。
+「去书源」跳转用 `FanhuoHomeTab.openRequests`（顶层 `ValueNotifier`），
+因为 `HomeHealthBanner` 在 `MaterialApp` 外层，拿不到 `HomeShell` 的 State。
+
 ## [1.1.0] - 2026-11-17
 
 这一版解决两个问题：**一进首页就「加载失败」**，以及书源太少。

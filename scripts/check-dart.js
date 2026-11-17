@@ -124,18 +124,26 @@ function lineOf(source, index) {
   return source.slice(0, index).split('\n').length;
 }
 
-/** 检查 import 的目标是否存在（只查相对路径）。 */
+/** 检查 import 的目标是否存在（只查相对路径）。
+ *
+ * 注意：`lib/fanhuo/*.dart` 里允许 `../app_ui.dart` 这种上游引用 ——
+ * 这些文件在仓库里是「待注入」的，上游文件要到 _wenku_base 才有，
+ * 所以这里对 `lib/` 下的文件放宽：只要 _wenku_base/lib/ 里存在同名文件就算过。
+ */
 function checkImports(file, source) {
   const problems = [];
+  const BASE_LIB = path.join(ROOT, '_wenku_base', 'lib');
   const importRe = /^\s*import\s+'([^']+)'/gm;
   let m;
   while ((m = importRe.exec(source))) {
     const target = m[1];
     if (!target.startsWith('.') && !target.startsWith('/')) continue;
     const resolved = path.resolve(path.dirname(file), target);
-    if (!fs.existsSync(resolved)) {
-      problems.push(`import 指向不存在的文件：${target}`);
-    }
+    if (fs.existsSync(resolved)) continue;
+    // 放宽：目标可能在底座里（../xxx.dart 指向上游 lib/xxx.dart）
+    const upstream = path.join(BASE_LIB, path.basename(target));
+    if (fs.existsSync(upstream)) continue;
+    problems.push(`import 指向不存在的文件：${target}`);
   }
   return problems;
 }
