@@ -534,6 +534,7 @@ class Proofreader {
 
   /// 连通性测试：发一句最短的话，看能不能拿到回包。
   Future<String> ping() async {
+    final effective = _effective;
     final request = buildRequest(
       provider: provider,
       config: effective,
