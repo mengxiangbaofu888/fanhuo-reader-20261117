@@ -147,13 +147,23 @@ import 'fanhuo/source_bootstrap.dart';`,
     ];`,
   },
   {
-    name: '页面列表：书源页自带 Atmosphere，不重复包',
-    find: `            .map((page) => RepaintBoundary(child: Atmosphere(child: page)))`,
-    replace: `            .map(
+    name: '页面列表加书源页（自定义 map，不重复包 Atmosphere）',
+    find: `              settings,
+            ]
+            .map((page) => RepaintBoundary(child: Atmosphere(child: page)))`,
+    replace: `              settings,
+              _fanhuoPage,
+            ]
+            .map(
               (page) => RepaintBoundary(
                 child: page is FanhuoHomeTab ? page : Atmosphere(child: page),
               ),
             )`,
+  },
+  {
+    name: '（校验）书源页必须进 _pageWidgets，否则 _headers[_tab] 越界',
+    find: `              _fanhuoPage,`,
+    replace: `              _fanhuoPage,`,
   },
 ]);
 

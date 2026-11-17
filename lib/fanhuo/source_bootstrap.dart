@@ -20,6 +20,7 @@ import 'book_source.dart';
 import 'fanqie_settings.dart';
 import 'gbk_tables.dart';
 import 'multi_source_search.dart';
+import 'rule_engine.dart';
 import 'source_repository.dart';
 
 class FanhuoSourceBootstrap {
@@ -121,13 +122,14 @@ class FanhuoSourceBootstrap {
   Future<String> fetch(SearchRequest request, {String? header}) async {
     final client = HttpClient()
       ..connectionTimeout = const Duration(seconds: 10)
-      ..badCertificateCallback = (cert, host, port) => true
-      ..userAgent =
-          'Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 '
-          '(KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36';
+      ..badCertificateCallback = (cert, host, port) => true;
+    const _ua =
+        'Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 '
+        '(KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36';
     try {
       final uri = Uri.parse(request.url);
       final req = await client.openUrl(request.method, uri);
+      req.headers.set(HttpHeaders.userAgentHeader, _ua);
       req.headers.set('Accept', 'text/html,application/xhtml+xml,*/*');
       req.headers.set('Accept-Language', 'zh-CN,zh;q=0.9');
       final extra = _extraHeaders(header);
