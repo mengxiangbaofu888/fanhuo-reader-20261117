@@ -111,13 +111,18 @@ void main() {
 
   group('三种协议的请求构造', () {
     test('OpenAI 兼容：Bearer + messages', () {
+      final cfg = _config('deepseek-chat');
       final request = buildRequest(
         provider: _deepseek,
-        config: _config('deepseek-chat'),
+        config: cfg,
         systemPrompt: 'sys',
         userPrompt: 'usr',
       );
-      expect(request.url, 'https://api.deepseek.com/v1/chat/completions');
+      expect(
+        request.url,
+        'https://api.deepseek.com/v1/chat/completions',
+        reason: 'diag cfg.baseUrl=「${cfg.baseUrl}」 provider.baseUrl=「${_deepseek.baseUrl}」',
+      );
       expect(request.headers['Authorization'], 'Bearer sk-test');
       final body = jsonDecode(request.body) as Map<String, dynamic>;
       expect(body['model'], 'deepseek-chat');
