@@ -8,7 +8,6 @@ library;
 
 import 'package:flutter/material.dart';
 
-import 'book_source.dart';
 import 'fanqie_theme.dart';
 import 'multi_source_search.dart';
 import 'source_repository.dart';

@@ -1,6 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:wenku8_flutter/fanhuo/book_source.dart';
 import 'package:wenku8_flutter/fanhuo/rule_engine.dart';
 import 'package:wenku8_flutter/fanhuo/source_repository.dart';
 
@@ -49,7 +48,7 @@ const _disabled = {
 };
 
 String _pack(Object json, {required String pack}) {
-  final map = Map<String, Object?>.from(json);
+  final map = Map<Object?, Object?>.from(json as Map);
   map['sourcePack'] = pack;
   return _quote(map);
 }

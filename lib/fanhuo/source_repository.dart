@@ -69,18 +69,19 @@ class BookSourceRepository {
       final s = p.source;
       if (!s.enabled || !s.canSearch) return false;
       if (RuleEngine.needsJs(s.searchUrl!)) return false;
-      if (_ruleHasJs(s.searchRule, s.tocRule, s.contentRule, s.bookInfoRule)) {
+      if (_ruleHasJs(s.searchRule) ||
+          _ruleHasJs(s.tocRule) ||
+          _ruleHasJs(s.contentRule) ||
+          _ruleHasJs(s.bookInfoRule)) {
         return false;
       }
       return true;
     }).toList(growable: false);
   }
 
-  static bool _ruleHasJs(List<SourceRule> rules) {
-    for (final rule in rules) {
-      for (final value in rule.fields.values) {
-        if (RuleEngine.needsJs(value)) return true;
-      }
+  static bool _ruleHasJs(SourceRule rule) {
+    for (final value in rule.fields.values) {
+      if (RuleEngine.needsJs(value)) return true;
     }
     return false;
   }
@@ -98,7 +99,10 @@ class BookSourceRepository {
       if (s.canExplore) explore++;
       if (!s.canSearch) continue;
       if (RuleEngine.needsJs(s.searchUrl!) ||
-          _ruleHasJs([s.searchRule, s.tocRule, s.contentRule, s.bookInfoRule])) {
+          _ruleHasJs(s.searchRule) ||
+              _ruleHasJs(s.tocRule) ||
+              _ruleHasJs(s.contentRule) ||
+              _ruleHasJs(s.bookInfoRule)) {
         jsBlocked++;
       } else {
         searchableCount++;
