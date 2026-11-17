@@ -96,6 +96,9 @@ String evaluateJs(String script, JsScope scope) {
 /// JS 的 `String()` 语义：null → 'null'，undefined → 'undefined'，
 /// 数字不带 `.0`，数组按逗号连。
 String _toJsString(Object? value) {
+  // Dart 的 null 在子集里既当 undefined 也当「取不到」，
+  // 但书源脚本的实际诉求是「没取到就给我空/undefined」，
+  // 所以这里保留 'undefined'；真正的 JS null 用 JsNull 表示。
   if (value == null) return 'undefined';
   if (value is String) return value;
   if (value is bool) return value ? 'true' : 'false';
@@ -1297,8 +1300,10 @@ class _Interpreter {
   Object? _member(_Member node) {
     final target = _eval(node.target);
     final property = node.computed ? _eval(node.property) : (node.property as _Str).value;
+    // JS 里 `null[1]` 会 TypeError；书源脚本里这种写法基本都是「没匹配到」，
+    // 让它退化成 undefined 比整条规则炸掉更有用：上层会当成「没取到」。
     if (target == null || target is JsNull) {
-      throw JsRuntimeError('读 ${_toJsString(target)} 的属性「$property」');
+      return null;
     }
     if (target is String) {
       if (property == 'length') return target.length;
