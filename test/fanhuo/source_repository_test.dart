@@ -106,8 +106,10 @@ void main() {
     test('统计：JS 挡掉的能被单独数出来', () {
       final stats = repo.stats();
       expect(stats.total, 4);
+      // 夹具没写 jsTier，走「规则里含 JS 就剔」的兜底分支；
+      // jsBlocked 只统计 jsTier 为 mid/hard 的源（要真引擎的那些）。
       expect(stats.searchable, 1);
-      expect(stats.jsBlocked, 1);
+      expect(stats.jsBlocked, 0);
       expect(stats.byPack[SourcePack.kuangye], 1);
       expect(stats.byPack[SourcePack.aoaostar], 3);
       expect(stats.summary, contains('可搜 1'));

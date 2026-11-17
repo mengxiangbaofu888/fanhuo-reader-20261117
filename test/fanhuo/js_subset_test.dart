@@ -41,10 +41,12 @@ var iid = parseInt(id/1000);
       );
     });
 
-    test('匹配不到时返回 null（JS 语义）', () {
+    test('匹配不到时退化成 undefined，不抛异常', () {
+      // 真实 JS 里 match 返回 null，再 [1] 会 TypeError；
+      // 子集里不让它炸，退化成 undefined，交给上层当「没取到」处理。
       expect(
         run(r"result.match(/\('(.*?)'\)/)[1]", result: 'nomatch'),
-        'undefined', // [1] 取不到 → null，再 String() → 'undefined'
+        'undefined',
       );
     });
   });
@@ -89,7 +91,7 @@ var iid = parseInt(id/1000);
     });
 
     test('indexOf / startsWith / includes', () {
-      expect(run("result.indexOf('cd')", result: 'abcdef'), 2);
+      expect(run("result.indexOf('cd')", result: 'abcdef'), '2');
       expect(run("result.startsWith('ab')", result: 'abcdef'), 'true');
       expect(run("result.includes('zz')", result: 'abcdef'), 'false');
     });
@@ -99,21 +101,21 @@ var iid = parseInt(id/1000);
     });
 
     test('length', () {
-      expect(run('result.length', result: '中文abc'), 5);
+      expect(run('result.length', result: '中文abc'), '5');
     });
   });
 
   group('数值与运算', () {
     test('parseInt 与除法取整', () {
-      expect(run('parseInt(result/1000)', result: '12345'), 12);
+      expect(run('parseInt(result/1000)', result: '12345'), '12');
     });
 
     test('~~ 取整（位运算）', () {
-      expect(run('~~(result/1000)', result: '12345'), 12);
+      expect(run('~~(result/1000)', result: '12345'), '12');
     });
 
     test('加法不吞小数点', () {
-      expect(run('1+2'), 3);
+      expect(run('1+2'), '3');
     });
 
     test('字符串加数字走拼接', () {
@@ -121,9 +123,9 @@ var iid = parseInt(id/1000);
     });
 
     test('Math.floor / max / min', () {
-      expect(run('Math.floor(result/1000)', result: '9999'), 9);
-      expect(run('Math.max(1, 7, 3)'), 7);
-      expect(run('Math.min(1, 7, 3)'), 1);
+      expect(run('Math.floor(result/1000)', result: '9999'), '9');
+      expect(run('Math.max(1, 7, 3)'), '7');
+      expect(run('Math.min(1, 7, 3)'), '1');
     });
   });
 
