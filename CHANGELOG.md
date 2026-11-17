@@ -2,6 +2,48 @@
 
 本项目版本号遵循 `主.次.补`，`versionCode = 主*10000 + 次*100 + 补`。
 
+## [1.3.0] - 2026-11-17
+
+这一版打通「搜到书 → 能读正文」，书源 tab 不再只能搜不能读。
+
+### 新增
+
+- **书源书接入上游阅读器** `source_novel_repository.dart`：
+  `FanhuoSourceRepository extends NovelRepository`，把书源条目转成上游 `Novel`：
+  - `chapters()`：抓目录页（`ruleBookInfo.tocUrl` → 退到书页），
+    按 `ruleToc.chapterList/chapterName/chapterUrl` 取章节列表
+  - `chapterContent()`：抓正文页，`ruleContent.content` 取 HTML 片段，
+    `ruleContent.nextContentUrl` 处理分页（最多 24 页防死循环）
+  - 正文 HTML → 纯文本：`<br>`/`<p>` 转换行，`<script>`/`<style>` 丢弃，
+    其余标签剥离，实体反转义，空行压缩
+- **书籍 id 用稳定负数**：`-900000000` 起，按 `bookUrl` 哈希落位，
+  和上游本地书（负数小区间）错开；同一 `bookUrl` 每次拿到同一个 id
+- **章节 id 用序号**（1 起）：书源站没有稳定章节 id，
+  用「第几章」当 id 才能让上游的进度记录、缓存、下载都对得上
+- **绑定表持久化**：`fanhuo.books.v1` 存 novelId → {书名, 作者, bookUrl, 书源}，
+  冷启动后书架里还能取回
+- **目录/正文都走离线缓存**：`OfflineCacheStore.saveBook/saveChapter`，
+  在 `epoch` 内调用，缓存命中就不走网络
+
+### 改动
+
+- `source_search_page.dart`：类名 `FanhuoSearchPage` → `SourceSearchPage`，
+  回调从 `onOpenBook(PackedSource, SearchHit)` 改为 `onOpenNovel(Novel)`；
+  点书时先 `bind()` 登记再交给阅读页，带「打开中」状态防连点
+- `source_bootstrap.dart`：新增 `novelRepository` 与 `cache`，
+  书源包加载后顺带 `OfflineCacheStore.load()`
+- `fanhuo_home.dart`：搜书卡片改跳 `SourceSearchPage`（之前误跳书源管理页）
+- `home_tab.dart`：`FanhuoHomeTab` 新增 `onOpenNovel` 参数并向下传
+
+### 挂载
+
+新增 `scripts/patch-reader.js`，对上游只改 `pages.dart` 两处：
+
+1. `FanhuoHomeTab` 构造时注入 `onOpenNovel: _openFanhuoNovel`
+2. `_openFanhuoNovel(Novel)` → `openDetail(context, novel, widget.state, novelRepository)`
+
+链路：**书源搜索页 → 点书 → bind 登记 → openDetail → 上游详情/阅读页**。
+
 ## [1.2.0] - 2026-11-17
 
 这一版把「书源」真正挂进 App：底部多一个 tab（挂法 2），首屏内容源连不上时顶部出现提示条（挂法 3）。

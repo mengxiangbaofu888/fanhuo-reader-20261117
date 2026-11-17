@@ -189,4 +189,19 @@ if (fs.existsSync(testSrc)) {
   }
 }
 
+/* ---------- 7. 阅读链接入 ---------- */
+{
+  log('开始接入阅读页（scripts/patch-reader.js）');
+  try {
+    execFileSync(process.execPath, [path.join(ROOT, 'scripts', 'patch-reader.js')], {
+      cwd: ROOT,
+      stdio: 'inherit',
+      env: { ...process.env, WENKU_BASE: BASE },
+    });
+  } catch {
+    console.error('[apply-patches] 阅读链接入失败，见上方 [patch-reader] 输出');
+    process.exit(1);
+  }
+}
+
 log('注入完成。');

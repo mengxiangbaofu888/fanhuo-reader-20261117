@@ -16,10 +16,12 @@ import 'package:flutter/foundation.dart' show compute;
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../offline_cache.dart';
 import 'book_source.dart';
 import 'fanqie_settings.dart';
 import 'gbk_tables.dart';
 import 'rule_engine.dart';
+import 'source_novel_repository.dart';
 import 'source_repository.dart';
 
 class FanhuoSourceBootstrap {
@@ -39,6 +41,10 @@ class FanhuoSourceBootstrap {
 
   final _loaded = Completer<void>();
   Future<void> get ready => _loaded.future;
+
+  /// 书源 → 上游 Novel 的适配器。第一次访问时创建（要 OfflineCacheStore 先 load）。
+  FanhuoSourceRepository? _novelRepository;
+  FanhuoSourceRepository? get novelRepository => _novelRepository;
 
   bool _started = false;
   final Set<String> _disabled = <String>{};
@@ -64,12 +70,26 @@ class FanhuoSourceBootstrap {
           ? BookSourceRepository.parse(raw)
           : await compute(_parseInIsolate, raw);
       _repository = _filterDisabled(parsed);
+
+      // 书源 → 上游 Novel 适配器。离线缓存要先 load()，否则 saveBook 会用空索引。
+      final cache = OfflineCacheStore();
+      await cache.load();
+      _cache = cache;
+      _novelRepository = FanhuoSourceRepository(
+        sources: _repository,
+        fetch: fetch,
+        cache: cache,
+      );
+
       if (!_loaded.isCompleted) _loaded.complete();
     } catch (error, stack) {
       // 书源包坏了不能让 App 起不来：保留空仓库，上层显示「没有可用书源」。
       if (!_loaded.isCompleted) _loaded.completeError(error, stack);
     }
   }
+
+  OfflineCacheStore? _cache;
+  OfflineCacheStore? get cache => _cache;
 
   /// 顶层函数，`compute` 要求可序列化入口。
   static BookSourceRepository _parseInIsolate(String raw) =>

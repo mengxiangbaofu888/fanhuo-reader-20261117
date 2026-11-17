@@ -8,34 +8,36 @@ library;
 
 import 'package:flutter/material.dart';
 
+import '../catalog.dart';
 import 'fanqie_theme.dart';
 import 'multi_source_search.dart';
+import 'source_novel_repository.dart';
 import 'source_repository.dart';
 
 /// 一次搜索的状态机。
 enum SearchPhase { idle, loading, done, failed }
 
-class FanhuoSearchPage extends StatefulWidget {
-  const FanhuoSearchPage({
+class SourceSearchPage extends StatefulWidget {
+  const SourceSearchPage({
     super.key,
     required this.repository,
     required this.fetch,
-    this.onOpenBook,
+    this.onOpenNovel,
     this.initialKeyword = '',
   });
 
   final BookSourceRepository repository;
   final SourceFetcher fetch;
 
-  /// 点一本书时的回调（打开详情/加入书架）。
-  final void Function(PackedSource source, SearchHit hit)? onOpenBook;
+  /// 点一本书时：把书源条目登记成上游 Novel，再交给阅读页。
+  final Future<void> Function(Novel novel)? onOpenNovel;
   final String initialKeyword;
 
   @override
-  State<FanhuoSearchPage> createState() => _FanhuoSearchPageState();
+  State<SourceSearchPage> createState() => _SourceSearchPageState();
 }
 
-class _FanhuoSearchPageState extends State<FanhuoSearchPage> {
+class _SourceSearchPageState extends State<SourceSearchPage> {
   final _controller = TextEditingController();
   final _scroll = ScrollController();
 
@@ -246,6 +248,38 @@ class _FanhuoSearchPageState extends State<FanhuoSearchPage> {
     );
   }
 
+  /// 点一本书：登记成上游 Novel，交给阅读页。
+  ///
+  /// 登记要写 SharedPreferences（记下 bookUrl / 书源），是异步的，
+  /// 所以这里给一行「正在打开」的状态，避免用户连点。
+  bool _opening = false;
+
+  Future<void> _open(SearchHit hit) async {
+    if (_opening) return;
+    final binder = widget.onOpenNovel;
+    if (binder == null) return;
+    setState(() => _opening = true);
+    try {
+      final packed = widget.repository.all.firstWhere(
+        (p) => p.source.url == hit.sourceUrl,
+        orElse: () => widget.repository.all.first,
+      );
+      final repository = FanhuoSourceBootstrap.instance.novelRepository;
+      if (repository == null) {
+        throw StateError('书源运行时还没准备好');
+      }
+      final novel = await repository.bind(packed, hit);
+      await binder(novel);
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('打开失败：$error')),
+      );
+    } finally {
+      if (mounted) setState(() => _opening = false);
+    }
+  }
+
   Widget _hitTile(SearchHit hit, FanqiePaper paper) {
     return ListTile(
       title: Text(
@@ -270,18 +304,18 @@ class _FanhuoSearchPageState extends State<FanhuoSearchPage> {
           ),
         ],
       ),
-      trailing: IconButton(
-        icon: Icon(Icons.download_outlined, color: paper.ink),
-        tooltip: '加入书架',
-        onPressed: () {
-          final source = widget.repository.all
-              .firstWhere(
-                (p) => p.source.url == hit.sourceUrl,
-                orElse: () => widget.repository.all.first,
-              );
-          widget.onOpenBook?.call(source, hit);
-        },
-      ),
+      trailing: _opening
+          ? const SizedBox(
+              width: 20,
+              height: 20,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            )
+          : IconButton(
+              icon: Icon(Icons.menu_book_outlined, color: paper.ink),
+              tooltip: '打开阅读',
+              onPressed: widget.onOpenNovel == null ? null : () => _open(hit),
+            ),
+      onTap: widget.onOpenNovel == null ? null : () => _open(hit),
     );
   }
 }
