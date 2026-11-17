@@ -280,26 +280,25 @@ abstract final class RuleEngine {
 
   /// 取元素属性。
   ///
-  /// `html` 包（0.15.x）的 `Element.attributes` 是 **AttributeName → String** 的映射，
-  /// 键是 `AttributeName` 对象，不是 `String`；用 `attributes['src']` 会永远取到 null。
-  /// 必须先 `AttributeName('src')` 再查，取不到再退回逐个比大小写不敏感的名字
-  /// （书源站里 `SRC`、`Src`、`data-src` 都见过）。
-  ///
-  /// `src` / `data-src` / `data-original` 这类图片属性还做一次懒加载兜底：
-  /// 优先取有值的那个，别因为 `src` 是占位图就读不到真图。
+  /// `html` 包（0.15.x）的 `Element.attributes` 是 `LinkedHashMap<Object, String>`：
+  /// 普通 HTML 属性的键是 `String`（小写名），只有带命名空间的（`xlink:href` 之类）
+  /// 才用 `AttributeName`。所以 `attributes['src']` 本身是对的，
+  /// 但书源站常写 `SRC` / `Src`，或者用 `data-src` 懒加载，这里做两步兜底：
+  ///   1. 小写名取不到 → 遍历一遍按 `key.toString().toLowerCase()` 比对
+  ///   2. 要 `src` 却拿不到 → 依次试 `data-src` / `data-original` / `data-lazy-src`
   static String? _attributeOf(dom.Element node, String name, String base) {
     String? direct(String key) {
-      final found = node.attributes[dom.AttributeName(key)];
+      final found = node.attributes[key];
       if (found == null || found.trim().isEmpty) return null;
       return found;
     }
 
     var raw = direct(name);
     if (raw == null) {
-      // 大小写不敏感兜底
       final lower = name.toLowerCase();
       for (final entry in node.attributes.entries) {
-        if (entry.key.name.toLowerCase() == lower && entry.value.trim().isNotEmpty) {
+        if (entry.key.toString().toLowerCase() == lower &&
+            entry.value.trim().isNotEmpty) {
           raw = entry.value;
           break;
         }
