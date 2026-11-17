@@ -25,6 +25,7 @@ import 'dart:convert';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:html/dom.dart' as dom;
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../catalog.dart';
@@ -279,8 +280,9 @@ class FanhuoSourceRepository extends NovelRepository {
     final names = <String>[];
     final urls = <String>[];
     for (final node in nodes) {
-      final name = _field(node, document, rule, 'chapterName');
-      final url = _field(node, document, rule, 'chapterUrl');
+      if (node is! dom.Element) continue;
+      final name = _field(node, document, rule, 'chapterName', base: tocUrl);
+      final url = _field(node, document, rule, 'chapterUrl', base: tocUrl);
       if (name == null || url == null) continue;
       names.add(name.trim());
       urls.add(_absolute(url, tocUrl));
@@ -400,16 +402,16 @@ class FanhuoSourceRepository extends NovelRepository {
   // ───────── 工具 ─────────
 
   String? _field(
-    Object root,
-    Object document,
+    dom.Element root,
+    dom.Document document,
     SourceRule rule,
-    String name,
-  ) {
+    String name, {
+    String base = '',
+  }) {
     final raw = rule[name];
     if (raw == null) return null;
     try {
-      // ignore: avoid_dynamic_calls
-      return RuleEngine.pickIn(root, document, raw) as String?;
+      return RuleEngine.pickIn(root, document, raw, base: base);
     } catch (_) {
       return null;
     }

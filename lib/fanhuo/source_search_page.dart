@@ -11,6 +11,7 @@ import 'package:flutter/material.dart';
 import '../catalog.dart';
 import 'fanqie_theme.dart';
 import 'multi_source_search.dart';
+import 'source_bootstrap.dart';
 import 'source_novel_repository.dart';
 import 'source_repository.dart';
 

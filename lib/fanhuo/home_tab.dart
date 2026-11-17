@@ -14,6 +14,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../app_ui.dart';
+import '../catalog.dart';
 import 'fanhuo_home.dart';
 import 'fanqie_settings.dart';
 import 'multi_source_search.dart';
@@ -28,6 +29,7 @@ class FanhuoHomeTab extends StatelessWidget {
     required this.settings,
     required this.onSettingsChanged,
     this.onToggleSource,
+    this.onOpenNovel,
   });
 
   final BookSourceRepository repository;
@@ -35,6 +37,9 @@ class FanhuoHomeTab extends StatelessWidget {
   final FanqieReaderSettings settings;
   final ValueChanged<FanqieReaderSettings> onSettingsChanged;
   final Future<bool> Function(dynamic source, bool enabled)? onToggleSource;
+
+  /// 用户点「打开阅读」时，把这本书记成上游 Novel 并交给阅读页。
+  final Future<void> Function(Novel novel)? onOpenNovel;
 
   /// 全局「请打开书源 tab」信号。
   ///
@@ -64,6 +69,7 @@ class FanhuoHomeTab extends StatelessWidget {
           settings: settings,
           onSettingsChanged: onSettingsChanged,
           onToggleSource: onToggleSource,
+          onOpenNovel: onOpenNovel,
         ),
       );
 }

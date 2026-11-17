@@ -14,6 +14,7 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart' show compute;
 import 'package:flutter/services.dart' show rootBundle;
+import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../offline_cache.dart';
@@ -72,7 +73,12 @@ class FanhuoSourceBootstrap {
       _repository = _filterDisabled(parsed);
 
       // 书源 → 上游 Novel 适配器。离线缓存要先 load()，否则 saveBook 会用空索引。
-      final cache = OfflineCacheStore();
+      // 缓存目录放应用私有目录下的 fanhuo/，和上游的 offline 缓存分开，
+      // 避免书的负 id 与本地书混进同一个索引。
+      final base = await getApplicationSupportDirectory();
+      final cache = OfflineCacheStore(
+        Directory('${base.path}${Platform.pathSeparator}fanhuo'),
+      );
       await cache.load();
       _cache = cache;
       _novelRepository = FanhuoSourceRepository(

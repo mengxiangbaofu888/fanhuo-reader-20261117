@@ -12,12 +12,15 @@ library;
 
 import 'package:flutter/material.dart';
 
+import '../catalog.dart';
+
 import 'fanqie_panel.dart';
 import 'fanqie_settings.dart';
 import 'fanqie_theme.dart';
 import 'multi_source_search.dart';
 import 'source_manager_page.dart';
 import 'source_repository.dart';
+import 'source_search_page.dart';
 
 /// 首屏三件套的壳。上游只要把这个 Widget 挂到「我的」或底部 tab，就有可用的首屏。
 class FanhuoHome extends StatefulWidget {
@@ -29,6 +32,7 @@ class FanhuoHome extends StatefulWidget {
     required this.onSettingsChanged,
     this.onOpenSearch,
     this.onToggleSource,
+    this.onOpenNovel,
   });
 
   final BookSourceRepository repository;
@@ -39,6 +43,9 @@ class FanhuoHome extends StatefulWidget {
   /// 想自己接管搜索页（比如接到上游的详情页）就传这个。
   final void Function()? onOpenSearch;
   final Future<bool> Function(BookSourceLike source, bool enabled)? onToggleSource;
+
+  /// 书源书 → 上游阅读页。
+  final Future<void> Function(Novel novel)? onOpenNovel;
 
   @override
   State<FanhuoHome> createState() => _FanhuoHomeState();
@@ -95,9 +102,10 @@ class _FanhuoHomeState extends State<FanhuoHome> {
                 onTap: widget.onOpenSearch ??
                     () => Navigator.of(context).push(
                           MaterialPageRoute<void>(
-                            builder: (_) => SourceManagerPage(
+                            builder: (_) => SourceSearchPage(
                               repository: widget.repository,
-                              onToggle: widget.onToggleSource,
+                              fetch: widget.fetch,
+                              onOpenNovel: widget.onOpenNovel,
                             ),
                           ),
                         ),
