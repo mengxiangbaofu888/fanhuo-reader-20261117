@@ -271,13 +271,45 @@ abstract final class RuleEngine {
       if (lastStep == 'text' || lastStep == 'ownText') return node.text;
       if (lastStep == 'html' || lastStep == 'all') return node.innerHtml;
       if (_attributes.contains(lastStep)) {
-        final raw = node.attributes[lastStep];
-        if (raw == null) return null;
-        return _absolute(raw, base);
+        return _attributeOf(node, lastStep, base);
       }
       return node.text;
     }
     return node.text;
+  }
+
+  /// 取元素属性。
+  ///
+  /// `html` 包（0.15.x）的 `Element.attributes` 是 **AttributeName → String** 的映射，
+  /// 键是 `AttributeName` 对象，不是 `String`；用 `attributes['src']` 会永远取到 null。
+  /// 必须先 `AttributeName('src')` 再查，取不到再退回逐个比大小写不敏感的名字
+  /// （书源站里 `SRC`、`Src`、`data-src` 都见过）。
+  ///
+  /// `src` / `data-src` / `data-original` 这类图片属性还做一次懒加载兜底：
+  /// 优先取有值的那个，别因为 `src` 是占位图就读不到真图。
+  static String? _attributeOf(dom.Element node, String name, String base) {
+    String? direct(String key) {
+      final found = node.attributes[dom.AttributeName(key)];
+      if (found == null || found.trim().isEmpty) return null;
+      return found;
+    }
+
+    var raw = direct(name);
+    if (raw == null) {
+      // 大小写不敏感兜底
+      final lower = name.toLowerCase();
+      for (final entry in node.attributes.entries) {
+        if (entry.key.name.toLowerCase() == lower && entry.value.trim().isNotEmpty) {
+          raw = entry.value;
+          break;
+        }
+      }
+    }
+    if (raw == null && name == 'src') {
+      raw = direct('data-src') ?? direct('data-original') ?? direct('data-lazy-src');
+    }
+    if (raw == null) return null;
+    return _absolute(raw.trim(), base);
   }
 
   static String _absolute(String raw, String base) {
