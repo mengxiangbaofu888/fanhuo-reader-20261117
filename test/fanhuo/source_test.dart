@@ -112,7 +112,14 @@ void main() {
       final twoStep = RuleEngine.selectNodesFrom(dtNodes.first, 'tag.a@tag.img');
       expect(twoStep.length, 1, reason: 'dt 下两步 a@img 应为 1，实际 ' + twoStep.length.toString() + ' / 一步 a=' + aNodes.length.toString());
       final threeStep = RuleEngine.selectNodesFrom(first, 'tag.dt@tag.a@img');
-      expect(threeStep.length, 1, reason: 'dl 下三步 dt@a@img 应为 1，实际 ' + threeStep.length.toString());
+      final step1 = RuleEngine.selectNodesFrom(first, 'tag.dt');
+      final step2 = RuleEngine.selectNodesFrom(step1.isEmpty ? first : step1.first, 'tag.a');
+      final step3 = RuleEngine.selectNodesFrom(step2.isEmpty ? first : step2.first, 'tag.img');
+      expect(
+        threeStep.length,
+        1,
+        reason: 'step1=' + step1.length.toString() + ' step2=' + step2.length.toString() + ' step3=' + step3.length.toString(),
+      );
       final imgNodes2 = RuleEngine.selectNodesFrom(first, 'tag.dt@tag.a@img');
       expect(imgNodes2.length, 1, reason: '组合规则 dt@a@img 应为 1，实际 ' + imgNodes2.length.toString());
       final imgNodes = RuleEngine.selectNodesFrom(first, 'tag.dt@tag.a@img');
