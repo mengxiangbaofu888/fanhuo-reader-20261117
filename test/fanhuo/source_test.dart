@@ -103,9 +103,10 @@ void main() {
       // 属性取值：先用选择器拿到节点，再对节点取 @src —— 这才是「已经选中的节点」
       final imgNode = RuleEngine.pickIn(first, doc, 'tag.dt@tag.a@img');
       expect(imgNode, isNull); // img 没有文本，说明 pickIn 只管选择+值，不返回节点
-      final srcNode = RuleEngine.selectNodes(doc, 'class.sitembox.0@tag.dt@tag.a@img');
-      expect(srcNode.length, 1, reason: 'dt→a→img 应该 1 个；sheet=\ dl=\ dt=\');
-      expect(RuleEngine.valueOf(srcNode.first, 'tag.img@src'), '/img/1.jpg');
+      final srcNode = RuleEngine.selectNodes(doc, 'class.sitembox@tag.dl');
+      final imgNodes = RuleEngine.selectNodesFrom(first, 'tag.dt@tag.a@img');
+      expect(imgNodes.length, 1, reason: 'dl 里 dt>a>img 应该 1 个，实际 ' + imgNodes.length.toString());
+      expect(RuleEngine.valueOf(imgNodes.first, 'tag.img@src'), '/img/1.jpg');
     });
 
     test('负索引取末尾元素', () {
@@ -119,9 +120,9 @@ void main() {
       expect(RuleEngine.pick(doc, '@css:.book_des'), contains('少年提剑'));
     });
 
-    /// ##正则（无第三个 `##` 段）是**排除**语义：匹配到的部分被删掉。
-  /// ##正则##替换 才是「匹配后替换」。
-  test('##正则##替换 提炼规则', () {
+    /// ##正则（无第三个 ## 段）是排除语义：匹配到的部分被删掉。
+    /// ##正则##替换 才是「匹配后替换」。
+    test('##正则##替换 提炼规则', () {
       final doc = RuleEngine.parseHtml('<div id="x">广告正文内容删掉</div>');
       expect(RuleEngine.pick(doc, 'id.x@text##广告|删掉##'), '正文内容');
     });
