@@ -238,7 +238,7 @@ class _FanhuoSearchPageState extends State<FanhuoSearchPage> {
       controller: _scroll,
       padding: const EdgeInsets.symmetric(vertical: 8),
       itemCount: _hits.length,
-      separatorBuilder: (_, __) => Divider(
+      separatorBuilder: (context, index) => Divider(
         height: 1,
         color: paper.raised(0.12),
       ),
