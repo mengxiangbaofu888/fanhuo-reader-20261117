@@ -40,7 +40,7 @@ Map<String, Object?> _anthropic(String content) => {
       ],
     };
 
-Map<String, Object?> _gemini(String content) => {
+Map<String, Object?> _geminiReply(String content) => {
       'candidates': [
         {
           'content': {
@@ -159,7 +159,7 @@ void main() {
     test('三种协议都能抠出正文', () {
       expect(parseResponse(AiProtocol.openai, jsonEncode(_openAi('回'))), '回');
       expect(parseResponse(AiProtocol.anthropic, jsonEncode(_anthropic('回'))), '回');
-      expect(parseResponse(AiProtocol.gemini, jsonEncode(_gemini('回'))), '回');
+      expect(parseResponse(AiProtocol.gemini, jsonEncode(_geminiReply('回'))), '回');
     });
 
     test('结构不对抛 AiError', () {

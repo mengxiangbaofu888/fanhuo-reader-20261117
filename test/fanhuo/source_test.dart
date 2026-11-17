@@ -188,7 +188,8 @@ void main() {
 
     final sources = [
       BookSource.parseList('[$_sourceJson]').single,
-      BookSource.parseList('[$_sourceJson]').single.copyForTest(
+      cloneWithUrl(
+        BookSource.parseList('[$_sourceJson]').single,
         url: 'https://second.com/',
         name: '第二个源',
       ),
@@ -271,20 +272,21 @@ void main() {
 }
 
 /// 测试内造第二个源用的小工具：不改生产代码就给一个新 URL。
-extension on BookSource {
-  BookSource copyForTest({required String url, required String name}) => BookSource(
-        url: url,
-        name: name,
-        group: group,
-        enabled: enabled,
-        enabledExplore: enabledExplore,
-        searchUrl: searchUrl,
-        exploreUrl: exploreUrl,
-        header: header,
-        searchRule: searchRule,
-        bookInfoRule: bookInfoRule,
-        tocRule: tocRule,
-        contentRule: contentRule,
-        exploreRule: exploreRule,
-      );
-}
+/// （用顶层函数而不是扩展方法 —— 匿名的 `extension on BookSource` 在测试里
+/// 会被判成 `void Function`，编译不过。）
+BookSource cloneWithUrl(BookSource source, {required String url, required String name}) =>
+    BookSource(
+      url: url,
+      name: name,
+      group: source.group,
+      enabled: source.enabled,
+      enabledExplore: source.enabledExplore,
+      searchUrl: source.searchUrl,
+      exploreUrl: source.exploreUrl,
+      header: source.header,
+      searchRule: source.searchRule,
+      bookInfoRule: source.bookInfoRule,
+      tocRule: source.tocRule,
+      contentRule: source.contentRule,
+      exploreRule: source.exploreRule,
+    );
