@@ -280,7 +280,6 @@ class FanhuoSourceRepository extends NovelRepository {
     final names = <String>[];
     final urls = <String>[];
     for (final node in nodes) {
-      if (node is! dom.Element) continue;
       final name = _field(node, document, rule, 'chapterName', base: tocUrl);
       final url = _field(node, document, rule, 'chapterUrl', base: tocUrl);
       if (name == null || url == null) continue;
