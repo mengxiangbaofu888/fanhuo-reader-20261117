@@ -55,6 +55,37 @@ else {
   ok.push(`首页可达（200）${alive} 条`);
 }
 
+// 合并书源包（旷野 + aoaostar），App 实际加载的是这一个
+const merged = JSON.parse(read('data/bookSources-merged.json'));
+if (!Array.isArray(merged)) fail.push('合并书源不是数组');
+else {
+  ok.push(`合并书源 ${merged.length} 条`);
+  if (merged.length < 2000) fail.push(`合并书源数量异常：${merged.length}`);
+  const packs = {};
+  let searchable = 0;
+  let jsBlocked = 0;
+  for (const s of merged) {
+    const pack = s.sourcePack || 'unknown';
+    packs[pack] = (packs[pack] || 0) + 1;
+    if (!s.enabled || !s.searchUrl) continue;
+    const text = JSON.stringify(s);
+    if (text.includes('@js:') || text.includes('<js>')) jsBlocked += 1;
+    else searchable += 1;
+  }
+  ok.push(`可搜 ${searchable} 条，需 JS ${jsBlocked} 条`);
+  ok.push(`来源：${Object.entries(packs).map(([k, v]) => `${k} ${v}`).join(' / ')}`);
+  const seen = new Set();
+  let dup = 0;
+  for (const s of merged) {
+    const key = String(s.bookSourceUrl || '').replace(/\/+$/, '').toLowerCase();
+    if (!key) continue;
+    if (seen.has(key)) dup += 1;
+    seen.add(key);
+  }
+  if (dup > 0) fail.push(`合并后仍有 ${dup} 条重复域名的书源`);
+  else ok.push('书源域名去重通过');
+}
+
 const presets = JSON.parse(read('data/fanqie-presets.json'));
 if (!presets.papers || Object.keys(presets.papers).length !== 5) {
   fail.push('番茄预设应有 5 套正文底色');
