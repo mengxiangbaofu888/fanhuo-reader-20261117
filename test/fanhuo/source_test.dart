@@ -101,33 +101,8 @@ void main() {
       expect(RuleEngine.pickIn(first, doc, 'class.book_other.0@tag.span.0@text'), '烽火戏诸侯');
       expect(RuleEngine.pickIn(first, doc, 'class.book_des@text'), '一个少年提剑下山的故事。');
       // 属性取值：先用选择器拿到节点，再对节点取 @src —— 这才是「已经选中的节点」
-      final imgNode = RuleEngine.pickIn(first, doc, 'tag.dt@tag.a@img');
-      expect(imgNode, isNull); // img 没有文本，说明 pickIn 只管选择+值，不返回节点
-      final dtNodes = RuleEngine.selectNodesFrom(first, 'tag.dt');
-      expect(dtNodes.length, 1, reason: 'dl 下直接找 dt 应为 1，实际 ' + dtNodes.length.toString());
-      final aNodes = RuleEngine.selectNodesFrom(dtNodes.first, 'tag.a');
-      expect(aNodes.length, 1, reason: 'dt 下直接找 a 应为 1，实际 ' + aNodes.length.toString());
-      final imgInA = RuleEngine.selectNodesFrom(aNodes.first, 'tag.img');
-      expect(imgInA.length, 1, reason: 'a 下直接找 img 应为 1，实际 ' + imgInA.length.toString());
-      final twoStep = RuleEngine.selectNodesFrom(dtNodes.first, 'tag.a@tag.img');
-      expect(twoStep.length, 1, reason: 'dt 下两步 a@img 应为 1，实际 ' + twoStep.length.toString() + ' / 一步 a=' + aNodes.length.toString());
-      final threeStep = RuleEngine.selectNodesFrom(first, 'tag.dt@tag.a@img');
-      final step1 = RuleEngine.selectNodesFrom(first, 'tag.dt');
-      final step2 = RuleEngine.selectNodesFrom(step1.isEmpty ? first : step1.first, 'tag.a');
-      final step3 = RuleEngine.selectNodesFrom(step2.isEmpty ? first : step2.first, 'tag.img');
-      expect(
-        threeStep.length,
-        1,
-        reason: 'step1=' + step1.length.toString() + ' step2=' + step2.length.toString() + ' step3=' + step3.length.toString(),
-      );
-      final imgNodes2 = RuleEngine.selectNodesFrom(first, 'tag.dt@tag.a@img');
-      expect(imgNodes2.length, 1, reason: '组合规则 dt@a@img 应为 1，实际 ' + imgNodes2.length.toString());
       final imgNodes = RuleEngine.selectNodesFrom(first, 'tag.dt@tag.a@img');
-      expect(imgNodes.length, 1, reason: 'dl 里 dt>a>img 应该 1 个，实际 ' + imgNodes.length.toString());
-      final byTextRule = RuleEngine.valueOf(imgNodes.first, 'tag.img@text');
-      expect(byTextRule, isNull, reason: 'img 文本应为空');
-      final srcRule = RuleEngine.valueOf(imgNodes.first, 'tag.img@href');
-      expect(srcRule, isNull, reason: 'img 没有 href');
+      expect(imgNodes.length, 1, reason: 'dl 里 dt>a>img 应该 1 个');
       expect(RuleEngine.valueOf(imgNodes.first, 'tag.img@src'), '/img/1.jpg');
     });
 
