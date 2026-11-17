@@ -95,6 +95,22 @@ abstract final class RuleEngine {
     return joined.trim().isEmpty ? null : joined.trim();
   }
 
+  /// 把已经选中的节点按属性/文本取值（`@href` / `@src` / `@text` / `@html`）。
+  ///
+  /// 和 `pickIn` 分开是必要的：`pickIn` 是「从 root 子树里选」，这里是对
+  /// **已经选到的那一个节点**取属性，不再做任何选择。
+  static String? valueOf(
+    dom.Node node,
+    String rawRule, {
+    String base = '',
+  }) {
+    final rule = parse(rawRule);
+    var value = _valueOf(node, rule.selector, base);
+    if (value == null) return null;
+    value = _applyExtract(rawRule, rule, value);
+    return value.trim().isEmpty ? null : value.trim();
+  }
+
   /// 提炼规则：阅读里 `##正则` 是**排除**（删掉匹配到的部分），
   /// `##正则##替换` 是**匹配后替换**。没有替换段时按删除处理。
   static String _applyExtract(String rawRule, ParsedRule rule, String value) {
@@ -119,6 +135,9 @@ abstract final class RuleEngine {
   }
 
   /// 在一个已选中的节点内部继续取（搜索结果里，name/author 都是相对 bookList 节点的）。
+  ///
+  /// `document` 参数保留是为了调用方接口稳定（有些规则要跨节点取上下文），
+  /// 下钻本身只从 `root` 子树开始 —— 这与阅读里「bookList 之后的规则都相对条目」一致。
   static String? pickIn(
     dom.Element root,
     dom.Document document,
