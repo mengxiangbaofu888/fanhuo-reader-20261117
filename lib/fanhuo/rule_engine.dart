@@ -357,6 +357,4 @@ class SearchRequest {
   String toString() => '$method $url${body == null ? '' : ' body=$body'}';
 }
 
-extension _FirstOrNull<E> on Iterable<E> {
-  E? get firstOrNull => isEmpty ? null : first;
-}
+
