@@ -110,6 +110,14 @@ if (fs.existsSync(libSrc)) {
   log(`lib/fanhuo/ → _wenku_base/lib/fanhuo/（${before} → ${after} 个文件）`);
 }
 
+/* ---------- 3.5 test/fanhuo → _wenku_base/test/fanhuo ---------- */
+const testSrc = path.join(ROOT, 'test', 'fanhuo');
+if (fs.existsSync(testSrc)) {
+  const testDst = path.join(BASE, 'test', 'fanhuo');
+  copyTree(testSrc, testDst);
+  log(`test/fanhuo/ → _wenku_base/test/fanhuo/（${fs.readdirSync(testDst).length} 个文件）`);
+}
+
 /* ---------- 4. pubspec.yaml ---------- */
 {
   const rel = 'pubspec.yaml';
