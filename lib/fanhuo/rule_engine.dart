@@ -133,6 +133,11 @@ abstract final class RuleEngine {
     final rule = parse(rawRule);
     return _select(document, rule.selector, '').whereType<dom.Element>().toList();
   }
+  /// 从某个已选中的节点往**下**取多节点（相对规则）。
+  static List<dom.Element> selectNodesFrom(dom.Element root, String rawRule) {
+    final rule = parse(rawRule);
+    return _selectFrom(root, rule.selector, '').whereType<dom.Element>().toList();
+  }
 
   /// 在一个已选中的节点内部继续取（搜索结果里，name/author 都是相对 bookList 节点的）。
   ///
