@@ -1,12 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:wenku8_flutter/fanhuo/ai_proofread.dart';
-import 'package:wenku8_flutter/fanhuo/book_source.dart';
 import 'package:wenku8_flutter/fanhuo/fanqie_settings.dart';
 import 'package:wenku8_flutter/fanhuo/fanqie_theme.dart';
-import 'package:wenku8_flutter/fanhuo/multi_source_search.dart';
-import 'package:wenku8_flutter/fanhuo/rule_engine.dart';
 
 /// 番茄配色与排版常量：钉死从 resources.arsc 里读出来的那几个值。
 /// 这几行是「抄错了就红」的护栏。
@@ -101,8 +97,10 @@ void main() {
     test('坏数据回默认值，不抛异常', () {
       expect(FanqieReaderSettings.fromRecord(null).paper, FanqiePaper.yellow);
       expect(FanqieReaderSettings.fromRecord('不是 json').paper, FanqiePaper.yellow);
-      expect(FanqieReaderSettings.fromRecord('{"paper":"不存在"}').paper,
-          FanqiePaper.yellow);
+      expect(
+        FanqieReaderSettings.fromRecord('{"paper":"不存在"}').paper,
+        FanqiePaper.yellow,
+      );
     });
 
     test('页边距超范围会被夹住', () {
@@ -118,6 +116,20 @@ void main() {
       final large = FanqieReaderSettings.smartMarginFor(FanqieFontScale.large);
       expect(small, lessThan(medium));
       expect(medium, lessThan(large));
+    });
+
+    test('主题里的正文颜色跟着纸张走', () {
+      final theme = fanqieReaderTheme(
+        ThemeData(brightness: Brightness.light),
+        FanqiePaper.green,
+        font: FanqieFontScale.medium,
+        line: FanqieLineSpacing.normal,
+        paragraph: FanqieParagraphSpacing.normal,
+      );
+      expect(theme.scaffoldBackgroundColor, FanqiePaper.green.background);
+      expect(theme.textTheme.bodyMedium?.color, FanqiePaper.green.ink);
+      expect(theme.textTheme.bodyMedium?.fontSize, FanqieFontScale.medium.sizeSp);
+      expect(theme.textTheme.bodyMedium?.height, FanqieLineSpacing.normal.factor);
     });
   });
 }
