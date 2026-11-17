@@ -100,7 +100,16 @@ void main() {
       expect(RuleEngine.pickIn(first, doc, 'tag.dd@tag.h3@tag.a@href'), '/book/1/');
       expect(RuleEngine.pickIn(first, doc, 'class.book_other.0@tag.span.0@text'), '烽火戏诸侯');
       expect(RuleEngine.pickIn(first, doc, 'class.book_des@text'), '一个少年提剑下山的故事。');
-      expect(RuleEngine.pickIn(first, doc, 'tag.dt@tag.a@img@src'), '/img/1.jpg');
+      // 诊断：把中间节点数打出来，失败时能直接看到卡在哪一步
+      final dtNodes = RuleEngine.selectNodes(doc, 'class.sitembox@tag.dl');
+      final dbg = dtNodes.first.querySelectorAll('dt').length;
+      final dbgA = dtNodes.first.querySelectorAll('dt a').length;
+      final dbgImg = dtNodes.first.querySelectorAll('dt a img').length;
+      expect(
+        RuleEngine.pickIn(first, doc, 'tag.dt@tag.a@img@src'),
+        '/img/1.jpg',
+        reason: 'dt=$dbg a=$dbgA img=$dbgImg html=${dbgImg == 0 ? "img 没进 a 的子树" : "子树有 img，问题在取值"}',
+      );
     });
 
     test('负索引取末尾元素', () {
