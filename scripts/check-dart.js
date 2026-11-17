@@ -70,7 +70,12 @@ function skeleton(source) {
     // 普通字符串（含插值 ${...} 里可能还有引号，这里简单跳过）
     if (ch === "'" || ch === '"') {
       const quote = ch;
-      const raw = source[i - 1] === 'r';
+      // raw 字符串前缀判定：往前看是 r，且 r 前面不是标识符字符
+      let raw = false;
+      if (source[i - 1] === 'r') {
+        const before = i >= 2 ? source[i - 2] : '';
+        raw = before === '' || !/[A-Za-z0-9_$]/.test(before);
+      }
       i++;
       let closed = false;
       while (i < n) {

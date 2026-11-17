@@ -64,22 +64,26 @@ class BookSourceRepository {
     return BookSourceRepository._(out);
   }
 
-  /// 能搜的书源（有 searchUrl 且启用且规则里不含 JS）。
+  /// 能搜的书源。
   ///
-  /// 「不含 JS」这一条很关键：规则引擎跑不了 `@js:` / `<js>`，
-  /// 早筛掉比让它们进搜索队列再一个个抛异常快得多。
+  /// 放行条件：
+  ///   1. 启用 + 有 searchUrl
+  ///   2. 规则里的 JS 属于**子集可执行档**（`jsTier` 为 none / simple），
+  ///      或者没有 JS
+  /// `mid`（要 QuickJS）与 `hard`（要 Java 反射）仍然剔掉，但管理页能看到。
   List<PackedSource> get searchable {
     return _searchableCache ??= _all.where((p) {
       final s = p.source;
       if (!s.enabled || !s.canSearch) return false;
-      if (RuleEngine.needsJs(s.searchUrl!)) return false;
-      if (_ruleHasJs(s.searchRule) ||
-          _ruleHasJs(s.tocRule) ||
-          _ruleHasJs(s.contentRule) ||
-          _ruleHasJs(s.bookInfoRule)) {
-        return false;
-      }
-      return true;
+      return switch (s.jsTier) {
+        'mid' || 'hard' => false,
+        'simple' => true,
+        'none' || '' => !_ruleHasJs(s.searchRule) &&
+            !_ruleHasJs(s.tocRule) &&
+            !_ruleHasJs(s.contentRule) &&
+            !_ruleHasJs(s.bookInfoRule),
+        _ => false,
+      };
     }).toList(growable: false);
   }
 
@@ -92,32 +96,27 @@ class BookSourceRepository {
 
   /// 统计：给设置页显示「总 2301 / 可搜 1650 / 需 JS 651」这种概览。
   SourceStats stats() {
-    var searchableCount = 0;
     var jsBlocked = 0;
     var explore = 0;
     final byPack = <SourcePack, int>{};
+    final byTier = <String, int>{};
     for (final p in _all) {
       byPack[p.pack] = (byPack[p.pack] ?? 0) + 1;
       final s = p.source;
+      byTier[s.jsTier.isEmpty ? 'none' : s.jsTier] =
+          (byTier[s.jsTier.isEmpty ? 'none' : s.jsTier] ?? 0) + 1;
       if (!s.enabled) continue;
       if (s.canExplore) explore++;
       if (!s.canSearch) continue;
-      if (RuleEngine.needsJs(s.searchUrl!) ||
-          _ruleHasJs(s.searchRule) ||
-              _ruleHasJs(s.tocRule) ||
-              _ruleHasJs(s.contentRule) ||
-              _ruleHasJs(s.bookInfoRule)) {
-        jsBlocked++;
-      } else {
-        searchableCount++;
-      }
+      if (s.jsTier == 'mid' || s.jsTier == 'hard') jsBlocked++;
     }
     return SourceStats(
       total: _all.length,
-      searchable: searchableCount,
+      searchable: searchable.length,
       jsBlocked: jsBlocked,
       explorable: explore,
       byPack: byPack,
+      byTier: byTier,
     );
   }
 
@@ -152,6 +151,7 @@ class SourceStats {
     required this.jsBlocked,
     required this.explorable,
     required this.byPack,
+    this.byTier = const {},
   });
 
   final int total;
@@ -160,9 +160,24 @@ class SourceStats {
   final int explorable;
   final Map<SourcePack, int> byPack;
 
+  /// JS 分档：none / simple / mid / hard 各多少条。
+  final Map<String, int> byTier;
+
   String get summary =>
-      '共 $total 条 · 可搜 $searchable · 需 JS $jsBlocked · 带发现页 $explorable';
+      '共 $total 条 · 可搜 $searchable · 需引擎 $jsBlocked · 带发现页 $explorable';
 
   String packSummary() =>
       byPack.entries.map((e) => '${e.key.label} ${e.value}').join(' · ');
+
+  static const _tierLabels = {
+    'none': '无 JS',
+    'simple': 'JS·子集可跑',
+    'mid': 'JS·需引擎',
+    'hard': 'JS·不支持',
+  };
+
+  String tierSummary() => [
+    for (final entry in _tierLabels.entries)
+      if ((byTier[entry.key] ?? 0) > 0) '${entry.value} ${byTier[entry.key]}',
+  ].join(' · ');
 }

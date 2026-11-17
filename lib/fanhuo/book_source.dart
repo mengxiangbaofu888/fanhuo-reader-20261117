@@ -48,6 +48,7 @@ class BookSource {
     this.contentRule = const SourceRule({}),
     this.exploreRule = const SourceRule({}),
     this.probeStatus = '',
+    this.jsTier = '',
   });
 
   final String url;
@@ -76,6 +77,10 @@ class BookSource {
   /// 首页探测结果：HTTP 状态码字符串，"0" 表示连不上。
   /// 只有跑过 `scripts/probe-sources.js` 才有值。
   final String probeStatus;
+
+  /// 仓库预打的分级：'' / none / simple / mid / hard。
+  /// 由合并脚本按脚本用到的 API 判档写进 JSON，运行时只读不算。
+  final String jsTier;
 
   bool get canSearch => searchUrl != null && searchUrl!.isNotEmpty;
   bool get canExplore => enabledExplore && exploreUrl != null && exploreUrl!.isNotEmpty;
@@ -115,6 +120,7 @@ class BookSource {
       contentRule: SourceRule(_ruleFromJson(json['ruleContent'])),
       exploreRule: SourceRule(_ruleFromJson(json['ruleExplore'])),
       probeStatus: json['probeStatus']?.toString() ?? '',
+      jsTier: json['jsTier']?.toString() ?? '',
     );
   }
 

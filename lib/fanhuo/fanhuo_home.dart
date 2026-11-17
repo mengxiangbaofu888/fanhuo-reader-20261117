@@ -93,6 +93,10 @@ class _FanhuoHomeState extends State<FanhuoHome> {
                 stats.packSummary(),
                 style: TextStyle(fontSize: 12, color: paper.raised(0.45)),
               ),
+              Text(
+                stats.tierSummary(),
+                style: TextStyle(fontSize: 11, color: paper.raised(0.38)),
+              ),
               const SizedBox(height: 24),
               _bigCard(
                 paper: paper,

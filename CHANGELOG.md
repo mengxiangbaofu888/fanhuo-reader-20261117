@@ -2,6 +2,78 @@
 
 本项目版本号遵循 `主.次.补`，`versionCode = 主*10000 + 次*100 + 补`。
 
+## [1.4.0] - 2026-11-17
+
+书源 JS：自己能跑的自己跑，跑不了的明确报错。可搜书源 **824 → 1408**。
+
+### 新增：书源 JS 子集解释器 `js_subset.dart`
+
+真的写了一个 tokenizer + 递归下降求值器，不是拿正则去猜。
+
+先看数据。合并包 2301 条书源里 993 条带 JS，抽出 2693 段脚本按用到的 API 分三档：
+
+| 档 | 条数 | 特征 |
+|---|---|---|
+| simple | **605** | 纯字符串/正则/算术，如 `result.match(/(\d+)\/?$/)[1]` 拼封面 URL |
+| mid | 373 | `java.ajax` / `base64` / `JSON.parse` / `java.put`，要真引擎 |
+| hard | 15 | `JavaImporter` + `Packages.javax.crypto`，要 Android Java 反射 |
+
+这一档 **simple 全部由子集解释器执行**，不需要 QuickJS。
+
+支持的语法：
+
+- 字面量：数字、字符串、模板字符串 `` `${a}` ``、正则 `/re/gimsuy`、`true/false/null/undefined`
+- 声明：`var` / `let` / `const`
+- 运算：`+ - * / %`、`=== !== == != < > <= >=`、`&& || ?? !`、`~` 位运算、三元 `?:`
+- 成员：`a.b`、`a[b]`、`a.length`、`a?.b`
+- 调用：`f(a)`、`a.m(b)`、IIFE `(()=>{...})()` 与 `(function(){...})()`
+- 语句：`var`、`return`、`if/else`、块、表达式语句
+- 字符串方法：`match` `replace` `replaceAll` `split` `trim` `trimStart/End`
+  `substring` `substr` `slice` `indexOf` `lastIndexOf` `toLowerCase/UpperCase`
+  `startsWith` `endsWith` `includes` `charAt` `padStart/End`
+- 数组方法：`join` `push` `pop` `shift` `unshift` `slice` `concat` `indexOf` `includes`
+- 正则方法：`test` `exec`
+- 内建：`String` `Number` `Boolean` `parseInt` `parseFloat` `isNaN`
+  `Math.floor/ceil/round/abs/min/max/pow` `JSON.stringify`
+  `encodeURIComponent` `decodeURIComponent` `RegExp`
+
+**不在子集里的一律抛 `JsUnsupported`**，上层转成 `RuleUnsupported` 并写明原因，
+绝不静默返回空字符串（猜出来的结果会静默返回错数据，比报错难查一百倍）。
+
+### 规则引擎接入 `rule_engine.dart`
+
+```dart
+static bool jsLikelySubset(String rule)  // 廉价预筛：含 java./Packages./base64 等就判需引擎
+static String? extractJs(String rule)    // 从 `x@js:代码` 或 `<js>代码</js>` 抠出脚本
+static String executeJs(...)             // 先子集，认不出抛 RuleUnsupported（1.5.0 在此回落 QuickJS）
+```
+
+### 书源分档落盘
+
+- `data/bookSources-merged.json` 每条加 `jsTier` 字段（none / simple / mid / hard）
+- `BookSource.jsTier` 读取该字段，`SourceRepository.searchable` 放行 none + simple
+- 管理页把「需 JS」拆三档显示：`JS·子集` / `JS·需引擎` / `JS·不支持`
+- 首页与统计卡显示分档汇总
+
+### 数字变化
+
+| 项 | 1.3.0 | 1.4.0 |
+|---|---|---|
+| 书源总数 | 2301 | 2301 |
+| **可搜** | 824 | **1408** |
+| 需引擎 | 956 | 373 |
+| 不支持 | — | 15 |
+
+### 测试
+
+新增 `test/fanhuo/js_subset_test.dart`，50 条用例，脚本全部来自真实书源：
+
+- `var id = result.match(/(\d+)\/?$/)[1]; ...` 拼封面地址
+- `result.match(/\('(.*?)'\)/)[1]` 提取括号内容
+- `'http://www.31xs.org'+result`
+- 各种字符串/数组/正则方法
+- **超出子集的（循环、`java.ajax`、`JSON.parse`、`.map` 回调、`++`）必须抛 `JsUnsupported`**
+
 ## [1.3.0] - 2026-11-17
 
 这一版打通「搜到书 → 能读正文」，书源 tab 不再只能搜不能读。

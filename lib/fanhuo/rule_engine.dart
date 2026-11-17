@@ -8,14 +8,20 @@
 ///   3. `@XPath:` / 以 `//` 开头 —— 走 xml 包
 ///   4. 提炼规则：`##正则` 或 `##正则##替换`（`##` 之后是排除/替换）
 ///   5. `{{key}}` / `{{page}}` 变量替换（URL 里）
-///   6. `searchUrl` 的 JSON 形配置：`url,{\n "method":"POST",\n "body":"...",\n "charset":"gbk"}`
+/// 6. `searchUrl` 的 JSON 形配置：`url,{\n "method":"POST",\n "body":"...",\n "charset":"gbk"}`
 ///
-/// 不支持（旷野里 55 个源用到）：`@js:` 和 `<js>…</js>` 脚本块。遇到它们，引擎把这条规则
-/// 标成 [RuleUnsupported]，由上层决定「跳过该源」还是「退回默认规则」，绝不静默返回空。
+/// JS 规则分三档处理（见 [js_subset] 与 [executeJs]）：
+///   - **simple（605 条）**：纯字符串/正则/算术 → 由内置子集解释器执行，不需要真引擎
+///   - mid（373 条）：`java.ajax` / `base64` / `JSON.parse` → 抛 [RuleUnsupported]，
+///     等 1.5.0 接 QuickJS 后回落真引擎
+///   - hard（15 条）：`Packages.javax.crypto` 签名 → 标「不支持」
+/// 无论哪一档，跑不了的都抛 [RuleUnsupported] 并写清原因，绝不静默返回空。
 library;
 
 import 'package:html/dom.dart' as dom;
 import 'package:html/parser.dart' as html_parser;
+
+import 'js_subset.dart';
 
 /// 规则无法在纯 Dart 侧求值。
 class RuleUnsupported implements Exception {
@@ -49,6 +55,77 @@ abstract final class RuleEngine {
   static bool needsJs(String rule) {
     final lower = rule.toLowerCase();
     return lower.contains('@js:') || lower.contains('<js>') || lower.contains('</js>');
+  }
+
+  /// 这段规则能不能用**内置子集解释器**跑（不依赖真引擎）。
+  ///
+  /// 返回 true 只代表「语法上像子集」，真正能不能跑要等 [executeJs] 试。
+  /// 这里做的是廉价预筛，用来在搜索队列里区分「可跑 / 需引擎」。
+  static bool jsLikelySubset(String rule) {
+    if (!needsJs(rule)) return false;
+    final script = extractJs(rule);
+    if (script == null) return false;
+    // 这些 API 一定需要真引擎或 Java 反射
+    const blockers = [
+      'java.',
+      'Java.',
+      'Packages.',
+      'JavaImporter',
+      'importPackage',
+      'javax.',
+      'Cipher',
+      '__dex__',
+      'JSON.parse',
+      'base64Decode',
+      'base64Encode',
+      'md5',
+      'MD5',
+      'cookie.',
+      'new Date',
+      'Date(',
+    ];
+    return !blockers.any(script.contains);
+  }
+
+  /// 从规则里抠出 JS 源码。两种写法：
+  ///   `rule@js:代码`  → 代码在 `@js:` 之后
+  ///   `<js>代码</js>` → 代码在标签之间
+  static String? extractJs(String rule) {
+    final jsIndex = rule.indexOf('@js:');
+    if (jsIndex >= 0) return rule.substring(jsIndex + 4);
+    final open = rule.indexOf('<js>');
+    if (open >= 0) {
+      final close = rule.indexOf('</js>', open + 4);
+      final end = close < 0 ? rule.length : close;
+      return rule.substring(open + 4, end);
+    }
+    if (rule.toLowerCase().contains('</js>')) return null;
+    return null;
+  }
+
+  /// 执行规则里的 JS。
+  ///
+  /// 顺序固定：**先子集，再抛 RuleUnsupported**（1.5.0 会在这里回落 QuickJS）。
+  /// 子集里不支持 → 抛 [RuleUnsupported] 且 reason 写「超出 JS 子集」，
+  /// 上层据此决定「跳过该源 / 标不支持」，绝不静默返回空字符串。
+  static String executeJs(
+    String rule, {
+    required String result,
+    String base = '',
+    String key = '',
+  }) {
+    final script = extractJs(rule);
+    if (script == null || script.trim().isEmpty) {
+      throw RuleUnsupported(rule, 'JS 规则里没有脚本');
+    }
+    try {
+      return js_subset.evaluateJs(
+        script,
+        js_subset.JsScope(result: result, baseUrl: base, key: key),
+      );
+    } on js_subset.JsUnsupported catch (error) {
+      throw RuleUnsupported(rule, '超出 JS 子集：${error.message}');
+    }
   }
 
   /// 把 `A##B##C` 拆成 selector / extract / replace。

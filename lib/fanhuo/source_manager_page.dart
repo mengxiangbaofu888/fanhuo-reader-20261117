@@ -92,11 +92,14 @@ class _SourceManagerPageState extends State<SourceManagerPage> {
         children: [
           Text(stats.summary, style: TextStyle(color: paper.ink, fontSize: 13)),
           const SizedBox(height: 4),
+          Text(stats.tierSummary(),
+              style: TextStyle(color: paper.raised(0.55), fontSize: 12)),
           Text(stats.packSummary(),
               style: TextStyle(color: paper.raised(0.6), fontSize: 12)),
           const SizedBox(height: 4),
           Text(
-            '「需 JS」的源规则里有 @js: 或 <js> 脚本，当前引擎跑不了，已从搜索里剔除。',
+            'JS 分档：simple 由内置子集解释器直接执行（已进搜索队列）；'
+            'mid 要等 QuickJS 引擎；hard 依赖 Java 反射，不支持。',
             style: TextStyle(color: paper.raised(0.5), fontSize: 11),
           ),
         ],
@@ -169,7 +172,6 @@ class _SourceManagerPageState extends State<SourceManagerPage> {
 
   Widget _row(PackedSource packed, FanqiePaper paper) {
     final source = packed.source;
-    final blocked = source.canSearch && _hasJs(source);
     return ListTile(
       dense: true,
       title: Text(
@@ -180,7 +182,7 @@ class _SourceManagerPageState extends State<SourceManagerPage> {
       ),
       subtitle: Text(
         '${packed.pack.label} · ${source.group.isEmpty ? "未分组" : source.group}'
-        '${source.canSearch ? "" : " · 无搜索"}${blocked ? " · 需 JS" : ""}',
+        '${source.canSearch ? "" : " · 无搜索"}${_tierLabel(source.jsTier)}',
         maxLines: 1,
         overflow: TextOverflow.ellipsis,
         style: TextStyle(fontSize: 11, color: paper.raised(0.55)),
@@ -197,6 +199,13 @@ class _SourceManagerPageState extends State<SourceManagerPage> {
       onTap: () => _showDetail(source, paper),
     );
   }
+
+  static String _tierLabel(String tier) => switch (tier) {
+    'simple' => ' · JS·子集',
+    'mid' => ' · JS·需引擎',
+    'hard' => ' · JS·不支持',
+    _ => '',
+  };
 
   static bool _hasJs(BookSource s) {
     bool has(String? v) => v != null && (v.contains('@js:') || v.contains('<js>'));

@@ -62,17 +62,25 @@ else {
   ok.push(`合并书源 ${merged.length} 条`);
   if (merged.length < 2000) fail.push(`合并书源数量异常：${merged.length}`);
   const packs = {};
+  const tiers = { none: 0, simple: 0, mid: 0, hard: 0 };
   let searchable = 0;
-  let jsBlocked = 0;
   for (const s of merged) {
     const pack = s.sourcePack || 'unknown';
     packs[pack] = (packs[pack] || 0) + 1;
+    const tier = s.jsTier || 'none';
+    if (!(tier in tiers)) fail.push(`书源「${s.bookSourceName}」的 jsTier 非法：${tier}`);
+    else tiers[tier] += 1;
+    // 与 Dart 侧 searchable 的判定保持一致
     if (!s.enabled || !s.searchUrl) continue;
-    const text = JSON.stringify(s);
-    if (text.includes('@js:') || text.includes('<js>')) jsBlocked += 1;
-    else searchable += 1;
+    if (tier === 'mid' || tier === 'hard') continue;
+    searchable += 1;
   }
-  ok.push(`可搜 ${searchable} 条，需 JS ${jsBlocked} 条`);
+  ok.push(`可搜 ${searchable} 条`);
+  ok.push(`JS 分档：${Object.entries(tiers).map(([k, v]) => `${k} ${v}`).join(' / ')}`);
+  if (tiers.simple + tiers.mid + tiers.hard === 0) {
+    fail.push('jsTier 一个都没打，先跑一次分级');
+  }
+  if (searchable < 1400) fail.push(`可搜数量应 ≥ 1400（子集解释器生效后），实际 ${searchable}`);
   ok.push(`来源：${Object.entries(packs).map(([k, v]) => `${k} ${v}`).join(' / ')}`);
   const seen = new Set();
   let dup = 0;
