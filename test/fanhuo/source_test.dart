@@ -100,16 +100,12 @@ void main() {
       expect(RuleEngine.pickIn(first, doc, 'tag.dd@tag.h3@tag.a@href'), '/book/1/');
       expect(RuleEngine.pickIn(first, doc, 'class.book_other.0@tag.span.0@text'), '烽火戏诸侯');
       expect(RuleEngine.pickIn(first, doc, 'class.book_des@text'), '一个少年提剑下山的故事。');
-      // 诊断：把中间节点数打出来，失败时能直接看到卡在哪一步
-      final dtNodes = RuleEngine.selectNodes(doc, 'class.sitembox@tag.dl');
-      final dbg = dtNodes.first.querySelectorAll('dt').length;
-      final dbgA = dtNodes.first.querySelectorAll('dt a').length;
-      final dbgImg = dtNodes.first.querySelectorAll('dt a img').length;
-      expect(
-        RuleEngine.pickIn(first, doc, 'tag.dt@tag.a@img@src'),
-        '/img/1.jpg',
-        reason: 'dt=$dbg a=$dbgA img=$dbgImg html=${dbgImg == 0 ? "img 没进 a 的子树" : "子树有 img，问题在取值"}',
-      );
+      // 属性取值：先用选择器拿到节点，再对节点取 @src —— 这才是「已经选中的节点」
+      final imgNode = RuleEngine.pickIn(first, doc, 'tag.dt@tag.a@img');
+      expect(imgNode, isNull); // img 没有文本，说明 pickIn 只管选择+值，不返回节点
+      final srcNode = RuleEngine.selectNodes(first, 'tag.dt@tag.a@img');
+      expect(srcNode.length, 1, reason: 'dt→a→img 应该 1 个');
+      expect(RuleEngine.valueOf(srcNode.first, 'tag.img@src'), '/img/1.jpg');
     });
 
     test('负索引取末尾元素', () {
@@ -245,8 +241,12 @@ void main() {
     });
 
     test('单源超时被兜住，不影响别的源', () async {
+      // 两个源的 searchUrl 都指向 example.com 模板，所以按「第几个源」来区分快慢：
+      // 用调用次数切换，第一次慢、第二次快。
+      var call = 0;
       Future<String> slowFetch(SearchRequest request, {String? header}) async {
-        if (request.url.contains('second.com')) {
+        call++;
+        if (call == 1) {
           await Future<void>.delayed(const Duration(seconds: 5));
         }
         return _sampleHtml;
@@ -255,18 +255,23 @@ void main() {
       final search = MultiSourceSearch(
         sources: sources.take(2).toList(),
         fetch: slowFetch,
+        concurrency: 2,
         perSourceTimeout: const Duration(milliseconds: 100),
       );
       final results = await search.searchAll('剑来');
       final timedOut = results.where((r) => r.error == '超时').toList();
       final ok = results.where((r) => r.ok).toList();
-      expect(timedOut.length, 1);
-      expect(ok.length, 1);
+      expect(timedOut.length, 1, reason: '应该正好 1 个超时，实际 ${timedOut.length}');
+      expect(ok.length, 1, reason: '应该正好 1 个成功，实际 ${ok.length}');
     });
 
     test('单源抛异常只影响它自己', () async {
+      var call = 0;
       Future<String> brokenFetch(SearchRequest request, {String? header}) async {
-        if (request.url.contains('second.com')) throw StateError('网络炸了');
+        call++;
+        if (call == 1) {
+          throw StateError('网络炸了');
+        }
         return _sampleHtml;
       }
 
