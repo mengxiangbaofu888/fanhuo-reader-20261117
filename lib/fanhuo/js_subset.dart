@@ -1245,7 +1245,7 @@ class _Interpreter {
     if (node is _Logical) {
       final left = _eval(node.left);
       if (node.op == '&&') return _truthy(left) ? _eval(node.right) : left;
-      if (node.op == '??') return left == null ? _eval(node.right) : left;
+      if (node.op == '??') return left ?? _eval(node.right);
       return _truthy(left) ? left : _eval(node.right);
     }
     if (node is _Conditional) {
@@ -1567,15 +1567,15 @@ class _Interpreter {
         final sum = l + r;
         return sum == sum.roundToDouble() ? sum.round() : sum;
       case '-':
-        return _numResult(_toNumber(left) - _toNumber(right));
+        return toNumberResult(_toNumber(left) - _toNumber(right));
       case '*':
-        return _numResult(_toNumber(left) * _toNumber(right));
+        return toNumberResult(_toNumber(left) * _toNumber(right));
       case '/':
         final r = _toNumber(right);
         if (r == 0) throw const JsRuntimeError('除以 0');
         return _toNumber(left) / r;
       case '%':
-        return _numResult(_toNumber(left) % _toNumber(right));
+        return toNumberResult(_toNumber(left) % _toNumber(right));
       case '===':
         return _strictEquals(left, right);
       case '!==':
@@ -1606,7 +1606,8 @@ class _Interpreter {
     }
   }
 
-  static Object? _numResult(double value) {
+  /// 把 double 归一到 int（JS 里 3.0 要显示成 3）。
+  static Object? toNumberResult(double value) {
     if (value.isNaN) return double.nan;
     if (value == value.roundToDouble() && value.abs() < 1e15) {
       return value.round();
@@ -1764,7 +1765,7 @@ class _Interpreter {
       args.isEmpty ? '' : _toJsString(args.first);
 
   static Object? _number(List<Object?> args) =>
-      args.isEmpty ? 0 : _numResult(_toNumber(args.first));
+      args.isEmpty ? 0 : toNumberResult(_toNumber(args.first));
 
   static Object? _boolean(List<Object?> args) =>
       args.isEmpty ? false : _truthy(args.first);
@@ -1831,9 +1832,9 @@ class _MathObject {
           final v = arg(i);
           best = name == 'min' ? (v < best ? v : best) : (v > best ? v : best);
         }
-        return _numResult(best);
+        return _Interpreter.toNumberResult(best);
       case 'pow':
-        return _numResult(_pow(arg(0), arg(1)));
+        return _Interpreter.toNumberResult(_pow(arg(0), arg(1)));
       default:
         throw JsUnsupported('Math.$name 不在子集里');
     }
