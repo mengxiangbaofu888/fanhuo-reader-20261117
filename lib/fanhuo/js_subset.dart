@@ -145,7 +145,7 @@ class _Token {
   final Object? value;
   final int pos;
   @override
-  String toString() => '${type.name}(${text})';
+  String toString() => '${type.name}($text)';
 }
 
 class _Lexer {
@@ -307,7 +307,6 @@ class _Lexer {
   void _template() {
     final start = _i;
     _i++;
-    final buffer = StringBuffer();
     final parts = <Object>[]; // 字符串 或 表达式源码
     var text = StringBuffer();
     while (_i < src.length && src[_i] != '`') {
@@ -517,10 +516,9 @@ class _Member extends _Node {
 }
 
 class _Call extends _Node {
-  const _Call(this.callee, this.args, {this.optional = false});
+  const _Call(this.callee, this.args);
   final _Node callee;
   final List<_Node> args;
-  final bool optional;
 }
 
 class _Unary extends _Node {
@@ -593,7 +591,7 @@ class _ExprStmt extends _Node {
 class _Func extends _Node {
   const _Func(this.params, this.body);
   final List<String> params;
-  final _Block body;
+  final _Node body;
 }
 
 /// 什么都不做（`;` 空语句、被忽略的声明）。
@@ -614,7 +612,6 @@ class _Parser {
   int _p = 0;
 
   _Token get _cur => tokens[_p];
-  _Token get _next => _p + 1 < tokens.length ? tokens[_p + 1] : tokens.last;
 
   bool _isPunct(String text) => _cur.type == _T.punct && _cur.text == text;
   bool _isKeyword(String text) => _cur.type == _T.keyword && _cur.text == text;
@@ -727,8 +724,8 @@ class _Parser {
       if (_isPunct(',')) _p++;
     }
     _expect(')');
-    final body = _block();
-    // 回退成表达式：让上层把它当 _Func 用
+    // 回退成表达式：让上层把它当 _Func 用（解析出的 body 丢弃，不参与求值）
+    _block();
     _p = start;
     return const _Empty();
   }
@@ -1167,12 +1164,6 @@ class _Interpreter {
     return last;
   }
 
-  /// 表达式语句的值要留下来（脚本最后一个表达式的值就是结果）。
-  Object? _runStatementValue(_Node statement) {
-    final result = _exec(statement);
-    if (result is _ReturnSignal) return result.value;
-    return identical(result, _noValue) ? null : result;
-  }
 
   Object? _exec(_Node node) {
     if (node is _Program) {
@@ -1615,7 +1606,7 @@ class _Interpreter {
     }
   }
 
-  Object? _numResult(double value) {
+  static Object? _numResult(double value) {
     if (value.isNaN) return double.nan;
     if (value == value.roundToDouble() && value.abs() < 1e15) {
       return value.round();
@@ -1840,9 +1831,9 @@ class _MathObject {
           final v = arg(i);
           best = name == 'min' ? (v < best ? v : best) : (v > best ? v : best);
         }
-        return _Interpreter._numResult(best);
+        return _numResult(best);
       case 'pow':
-        return _Interpreter._numResult(_pow(arg(0), arg(1)));
+        return _numResult(_pow(arg(0), arg(1)));
       default:
         throw JsUnsupported('Math.$name 不在子集里');
     }

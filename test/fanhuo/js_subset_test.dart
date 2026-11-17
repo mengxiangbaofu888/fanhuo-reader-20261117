@@ -153,9 +153,10 @@ var iid = parseInt(id/1000);
 
   group('模板字符串', () {
     test('插值拼接', () {
+      // 用 r 前缀，避免 Dart 自己把 ${result} 当插值
       expect(
-        run('result = "id"; return `https://x/${result}.jpg`;'),
-        'https://x/id.jpg',
+        run(r'var id = result; return `https://x/${id}.jpg`;', result: 'abc'),
+        'https://x/abc.jpg',
       );
     });
   });

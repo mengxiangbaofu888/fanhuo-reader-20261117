@@ -119,11 +119,11 @@ abstract final class RuleEngine {
       throw RuleUnsupported(rule, 'JS 规则里没有脚本');
     }
     try {
-      return js_subset.evaluateJs(
+      return evaluateJs(
         script,
-        js_subset.JsScope(result: result, baseUrl: base, key: key),
+        JsScope(result: result, baseUrl: base, key: key),
       );
-    } on js_subset.JsUnsupported catch (error) {
+    } on JsUnsupported catch (error) {
       throw RuleUnsupported(rule, '超出 JS 子集：${error.message}');
     }
   }

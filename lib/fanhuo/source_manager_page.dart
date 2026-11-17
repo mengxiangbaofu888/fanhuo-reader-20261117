@@ -207,15 +207,6 @@ class _SourceManagerPageState extends State<SourceManagerPage> {
     _ => '',
   };
 
-  static bool _hasJs(BookSource s) {
-    bool has(String? v) => v != null && (v.contains('@js:') || v.contains('<js>'));
-    return has(s.searchUrl) ||
-        s.searchRule.fields.values.any(has) ||
-        s.tocRule.fields.values.any(has) ||
-        s.contentRule.fields.values.any(has) ||
-        s.bookInfoRule.fields.values.any(has);
-  }
-
   void _showDetail(BookSource source, FanqiePaper paper) {
     showModalBottomSheet<void>(
       context: context,
