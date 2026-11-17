@@ -103,7 +103,6 @@ void main() {
       // 属性取值：先用选择器拿到节点，再对节点取 @src —— 这才是「已经选中的节点」
       final imgNode = RuleEngine.pickIn(first, doc, 'tag.dt@tag.a@img');
       expect(imgNode, isNull); // img 没有文本，说明 pickIn 只管选择+值，不返回节点
-      final srcNode = RuleEngine.selectNodes(doc, 'class.sitembox@tag.dl');
       final imgNodes = RuleEngine.selectNodesFrom(first, 'tag.dt@tag.a@img');
       expect(imgNodes.length, 1, reason: 'dl 里 dt>a>img 应该 1 个，实际 ' + imgNodes.length.toString());
       expect(RuleEngine.valueOf(imgNodes.first, 'tag.img@src'), '/img/1.jpg');
