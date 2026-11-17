@@ -7,6 +7,8 @@
 /// 上层换成 HttpClient / dio / 原生 MethodChannel 都不影响这一层。
 library;
 
+import 'package:html/dom.dart' show Document, Element;
+
 import 'book_source.dart';
 import 'rule_engine.dart';
 
@@ -88,11 +90,8 @@ String? _field(
   final raw = rule[name];
   if (raw == null) return null;
   try {
-    if (root == null) return null;
-    // RuleEngine.pickIn 的签名是 (Element, Document, String)：这里靠 dynamic
-    // 绕开顶层对 html 包的类型依赖，让本文件能脱离网络单独测。
-    // ignore: avoid_dynamic_calls
-    return RuleEngine.pickIn(root, document, raw, base: base) as String?;
+    if (root is! Element || document is! Document) return null;
+    return RuleEngine.pickIn(root, document, raw, base: base);
   } on RuleUnsupported {
     return null;
   } on RuleSyntaxError {

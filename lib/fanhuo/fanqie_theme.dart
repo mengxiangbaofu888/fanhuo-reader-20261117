@@ -10,8 +10,9 @@
 library;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
-/// 番茄正文底色的五档。命名沿用番茄自己的 reader_<color>_theme_bg_light。
+/// 番茄正文底色的五档。命名沿用番茄自己的 reader_ 前缀色名。
 enum FanqiePaper {
   white('纯白', Color(0xFFD7D7DB), Color(0xFF2B2B2B)),
   yellow('暖黄', Color(0xFFF7E4CF), Color(0xFF3A3025)),
@@ -24,7 +25,7 @@ enum FanqiePaper {
   final String label;
   final Color background;
 
-  /// 正文墨色。番茄的 reader_*_theme_bg_light 只给了底色，
+  /// 正文墨色。番茄的 reader_* 资源只给了底色，
   /// 墨色取与底色同色相的深色，保证对比度 ≥ 7:1。
   final Color ink;
 
@@ -34,8 +35,7 @@ enum FanqiePaper {
   Color raised(double amount) => Color.lerp(background, ink, amount)!;
 }
 
-/// 字号三档。番茄的字号面板是 3 档（小 / 适中 / 大），
-/// 阅读页里再叠一个连续滑块微调，这里保留三档 + 1sp 步进。
+/// 字号三档。番茄的字号面板是 3 档（小 / 适中 / 大）。
 enum FanqieFontScale {
   small('小', 15),
   medium('适中', 18),
@@ -97,7 +97,7 @@ abstract final class FanqieLayout {
   /// 面板底部留白：`arf.xml` paddingBottom=40dp。
   static const double panelBottomPadding = 40;
 
-  /// 选项条高度：`MultipleOptionsView` 32dp（字体面板 34dp）。
+  /// 选项条高度：MultipleOptionsView 32dp（字体面板 34dp）。
   static const double optionStripHeight = 32;
   static const double optionStripHeightFont = 34;
 
@@ -118,7 +118,8 @@ abstract final class FanqieLayout {
 }
 
 /// 沉浸式阅读页用的系统 UI 样式：底色跟随 FanqiePaper，图标明暗跟着变。
-SystemUiStyle fanqieSystemUiStyle(FanqiePaper paper) => SystemUiStyle(
+/// 交给 `AnnotatedRegion<SystemUiOverlayStyle>` 使用。
+SystemUiOverlayStyle fanqieSystemUi(FanqiePaper paper) => SystemUiOverlayStyle(
       statusBarBrightness: paper.isDark ? Brightness.dark : Brightness.light,
       statusBarIconBrightness: paper.isDark ? Brightness.light : Brightness.dark,
       systemNavigationBarColor: paper.background,
@@ -127,7 +128,7 @@ SystemUiStyle fanqieSystemUiStyle(FanqiePaper paper) => SystemUiStyle(
       statusBarColor: Colors.transparent,
     );
 
-/// 把上面几项打包成阅读页主题，交给 Reader 的 Theme 继承。
+/// 把上面几项打包成阅读页主题，交给阅读器继承。
 ThemeData fanqieReaderTheme(
   ThemeData base,
   FanqiePaper paper, {

@@ -1,13 +1,13 @@
 /// 番茄式阅读设置面板（Dart/Flutter）。
 ///
 /// 视觉规格全部抄自番茄 `com.dragon.read` 7.3.7.33 的 layout：
-///   - 标题栏 56dp，标题 18sp（`MenuTitleView`）
-///   - 小节标签 12sp，左对齐（`arf.xml` / `e08.xml` 的 `TextView textSize=12sp`）
-///   - 选项条 32dp 高、圆角、选中项高亮（`MultipleOptionsView`）
-///   - 背景五色卡：52×28dp，横排无间隙（`e08.xml` 的 ipi…ipc）
+///   - 标题栏 56dp，标题 18sp（MenuTitleView）
+///   - 小节标签 12sp，左对齐（arf.xml / e08.xml 的 TextView textSize=12sp）
+///   - 选项条 32dp 高、圆角、选中项高亮（MultipleOptionsView）
+///   - 背景五色卡：52×28dp，横排（e08.xml 的 ipi…ipc）
 ///   - 面板底部留白 40dp
 ///
-/// 逻辑部分只管回调，不碰存储——状态由外面的 [FanqieReaderSettings] 持有。
+/// 逻辑部分只管回调，不碰存储——状态由外面的 FanqieReaderSettings 持有。
 library;
 
 import 'package:flutter/material.dart';
@@ -42,18 +42,23 @@ class FanqieReaderPanel extends StatelessWidget {
   final FanqiePanelCallbacks callbacks;
   final bool showAiEntry;
 
-  @override
-  Widget build(BuildContext context) {
+  /// 面板自己的主题：底色跟着当前纸张走。
+  ThemeData _theme() {
     final paper = settings.paper;
-    final theme = fanqieReaderTheme(
+    return fanqieReaderTheme(
       ThemeData(brightness: paper.isDark ? Brightness.dark : Brightness.light),
       paper,
       font: settings.font,
       line: settings.line,
       paragraph: settings.paragraph,
     );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final paper = settings.paper;
     return Theme(
-      data: theme,
+      data: _theme(),
       child: Material(
         color: paper.background,
         child: SafeArea(
@@ -64,11 +69,14 @@ class FanqieReaderPanel extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.stretch,
               mainAxisSize: MainAxisSize.min,
               children: [
-                _title(context),
+                _PanelTitle(
+                  paper: paper,
+                  onClose: () => Navigator.maybePop(context),
+                  onFont: callbacks.onOpenFontManager,
+                ),
                 _section(
-                  label: '字号',
-                  child: _optionStrip<FanqieFontScale>(
-                    context,
+                  '字号',
+                  _optionStrip<FanqieFontScale>(
                     values: FanqieFontScale.values,
                     current: settings.font,
                     labelOf: (v) => v.label,
@@ -76,9 +84,8 @@ class FanqieReaderPanel extends StatelessWidget {
                   ),
                 ),
                 _section(
-                  label: '行距',
-                  child: _optionStrip<FanqieLineSpacing>(
-                    context,
+                  '行距',
+                  _optionStrip<FanqieLineSpacing>(
                     values: FanqieLineSpacing.values,
                     current: settings.line,
                     labelOf: (v) => v.label,
@@ -86,9 +93,8 @@ class FanqieReaderPanel extends StatelessWidget {
                   ),
                 ),
                 _section(
-                  label: '段距',
-                  child: _optionStrip<FanqieParagraphSpacing>(
-                    context,
+                  '段距',
+                  _optionStrip<FanqieParagraphSpacing>(
                     values: FanqieParagraphSpacing.values,
                     current: settings.paragraph,
                     labelOf: (v) => v.label,
@@ -96,12 +102,10 @@ class FanqieReaderPanel extends StatelessWidget {
                         callbacks.onChanged(settings.copyWith(paragraph: v)),
                   ),
                 ),
-                _section(label: '背景', child: _colorCards(context)),
-                _section(label: '翻页', child: _pageEffects(context)),
-                if (paper.isDark == false)
-                  _section(label: '护眼', child: _switches(context)),
-                if (paper.isDark) _section(label: '夜间', child: _switches(context)),
-                if (showAiEntry) _aiEntry(context),
+                _section('背景', _colorCards()),
+                _section('翻页', _pageEffects()),
+                _section(paper.isDark ? '夜间' : '护眼', _switches()),
+                if (showAiEntry) _aiEntry(),
               ],
             ),
           ),
@@ -110,43 +114,7 @@ class FanqieReaderPanel extends StatelessWidget {
     );
   }
 
-  Widget _title(BuildContext context) {
-    final paper = settings.paper;
-    return SizedBox(
-      height: FanqieLayout.panelTitleHeight,
-      child: Stack(
-        alignment: Alignment.center,
-        children: [
-          Text(
-            '阅读设置',
-            style: TextStyle(
-              fontSize: FanqieLayout.titleTextSize,
-              fontWeight: FontWeight.w600,
-              color: paper.ink,
-            ),
-          ),
-          Positioned(
-            right: 8,
-            child: IconButton(
-              tooltip: '字体',
-              icon: Icon(Icons.format_size, color: paper.ink),
-              onPressed: callbacks.onOpenFontManager,
-            ),
-          ),
-          Positioned(
-            left: 8,
-            child: IconButton(
-              tooltip: '关闭',
-              icon: Icon(Icons.keyboard_arrow_down, color: paper.ink),
-              onPressed: () => Navigator.maybePop(context),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _section({required String label, required Widget child}) {
+  Widget _section(String label, Widget child) {
     final paper = settings.paper;
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
@@ -171,7 +139,6 @@ class FanqieReaderPanel extends StatelessWidget {
   }
 
   Widget _optionStrip<T extends Enum>({
-    required BuildContext context,
     required List<T> values,
     required T current,
     required String Function(T) labelOf,
@@ -204,7 +171,8 @@ class FanqieReaderPanel extends StatelessWidget {
                     labelOf(value),
                     style: TextStyle(
                       fontSize: FanqieLayout.optionTextSize,
-                      fontWeight: value == current ? FontWeight.w600 : FontWeight.w400,
+                      fontWeight:
+                          value == current ? FontWeight.w600 : FontWeight.w400,
                       color: value == current ? paper.ink : paper.raised(0.64),
                     ),
                   ),
@@ -216,7 +184,7 @@ class FanqieReaderPanel extends StatelessWidget {
     );
   }
 
-  Widget _colorCards(BuildContext context) {
+  Widget _colorCards() {
     final paper = settings.paper;
     return SizedBox(
       height: FanqieLayout.colorCardHeight,
@@ -249,13 +217,12 @@ class FanqieReaderPanel extends StatelessWidget {
     );
   }
 
-  Widget _pageEffects(BuildContext context) {
+  Widget _pageEffects() {
     final paper = settings.paper;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         _optionStrip<FanqiePageEffect>(
-          context,
           values: FanqiePageEffect.values,
           current: settings.effect,
           labelOf: (v) => v.label,
@@ -274,7 +241,7 @@ class FanqieReaderPanel extends StatelessWidget {
     );
   }
 
-  Widget _switches(BuildContext context) {
+  Widget _switches() {
     final paper = settings.paper;
     Widget row(String label, bool value, ValueChanged<bool> onToggle) => SizedBox(
           height: 30,
@@ -283,7 +250,10 @@ class FanqieReaderPanel extends StatelessWidget {
               Expanded(
                 child: Text(
                   label,
-                  style: TextStyle(fontSize: FanqieLayout.optionTextSize, color: paper.ink),
+                  style: TextStyle(
+                    fontSize: FanqieLayout.optionTextSize,
+                    color: paper.ink,
+                  ),
                 ),
               ),
               Transform.scale(
@@ -310,7 +280,7 @@ class FanqieReaderPanel extends StatelessWidget {
     );
   }
 
-  Widget _aiEntry(BuildContext context) {
+  Widget _aiEntry() {
     final paper = settings.paper;
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
@@ -328,4 +298,47 @@ class FanqieReaderPanel extends StatelessWidget {
       ),
     );
   }
+}
+
+/// 面板标题栏：56dp，标题 18sp，两侧图标。
+class _PanelTitle extends StatelessWidget {
+  const _PanelTitle({required this.paper, this.onClose, this.onFont});
+
+  final FanqiePaper paper;
+  final VoidCallback? onClose;
+  final VoidCallback? onFont;
+
+  @override
+  Widget build(BuildContext context) => SizedBox(
+        height: FanqieLayout.panelTitleHeight,
+        child: Stack(
+          alignment: Alignment.center,
+          children: [
+            Text(
+              '阅读设置',
+              style: TextStyle(
+                fontSize: FanqieLayout.titleTextSize,
+                fontWeight: FontWeight.w600,
+                color: paper.ink,
+              ),
+            ),
+            Positioned(
+              right: 8,
+              child: IconButton(
+                tooltip: '字体',
+                icon: Icon(Icons.format_size, color: paper.ink),
+                onPressed: onFont,
+              ),
+            ),
+            Positioned(
+              left: 8,
+              child: IconButton(
+                tooltip: '关闭',
+                icon: Icon(Icons.keyboard_arrow_down, color: paper.ink),
+                onPressed: onClose,
+              ),
+            ),
+          ],
+        ),
+      );
 }
