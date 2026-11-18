@@ -21,6 +21,8 @@ library;
 import 'package:html/dom.dart' as dom;
 import 'package:html/parser.dart' as html_parser;
 
+import 'js_engine.dart';
+import 'js_host_api.dart';
 import 'js_subset.dart';
 
 /// 规则无法在纯 Dart 侧求值。
@@ -105,9 +107,10 @@ abstract final class RuleEngine {
 
   /// 执行规则里的 JS。
   ///
-  /// 顺序固定：**先子集，再抛 RuleUnsupported**（1.5.0 会在这里回落 QuickJS）。
-  /// 子集里不支持 → 抛 [RuleUnsupported] 且 reason 写「超出 JS 子集」，
-  /// 上层据此决定「跳过该源 / 标不支持」，绝不静默返回空字符串。
+  /// 顺序固定：**先子集，失败再抛 [RuleUnsupported]**。
+  /// 子集认不出 → 抛 [RuleUnsupported] 且 reason 写「超出 JS 子集」，
+  /// 上层可以用 [executeJsWithEngine] 再试一次真引擎（QuickJS），
+  /// 两条都不行才标「不支持」，绝不静默返回空字符串。
   static String executeJs(
     String rule, {
     required String result,
@@ -126,6 +129,45 @@ abstract final class RuleEngine {
     } on JsUnsupported catch (error) {
       throw RuleUnsupported(rule, '超出 JS 子集：${error.message}');
     }
+  }
+
+  /// 执行规则里的 JS，**子集跑不了时回落到真引擎**。
+  ///
+  /// 返回 null 表示两条路都不通（脚本要 `Packages.javax.*` 之类做不到的事）。
+  /// 判定用 `jsTier`：simple 走子集，mid 直接进引擎，hard 不给跑。
+  static Future<String?> executeJsWithEngine(
+    String rule, {
+    required String result,
+    required SourceFetcher fetch,
+    required HostAllowList allowList,
+    String base = '',
+    String key = '',
+    String tier = '',
+  }) async {
+    if (tier == 'hard') return null;
+    final script = extractJs(rule);
+    if (script == null || script.trim().isEmpty) return null;
+
+    if (tier != 'mid') {
+      try {
+        return evaluateJs(
+          script,
+          JsScope(result: result, baseUrl: base, key: key),
+        );
+      } on JsUnsupported {
+        // 落到引擎
+      } catch (_) {
+        // 运行时错误也交给引擎再试一次，它可能只是缺了某个宿主 API
+      }
+    }
+    return tryRunBookSourceJs(
+      script,
+      fetch: fetch,
+      allowList: allowList,
+      result: result,
+      baseUrl: base,
+      key: key,
+    );
   }
 
   /// 把 `A##B##C` 拆成 selector / extract / replace。
