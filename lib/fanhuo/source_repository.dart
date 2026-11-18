@@ -111,7 +111,8 @@ class BookSourceRepository {
       if (!s.enabled) continue;
       if (s.canExplore) explore++;
       if (!s.canSearch) continue;
-      if (s.jsTier == 'mid' || s.jsTier == 'hard') jsBlocked++;
+      // 1.5.1 起 mid 已进搜索队列（走 QuickJS），只剩 hard 是「真跑不了」
+      if (s.jsTier == 'hard') jsBlocked++;
     }
     return SourceStats(
       total: _all.length,
