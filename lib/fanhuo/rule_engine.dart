@@ -24,6 +24,7 @@ import 'package:html/parser.dart' as html_parser;
 import 'js_engine.dart';
 import 'js_host_api.dart';
 import 'js_subset.dart';
+import 'multi_source_search.dart' show SourceFetcher;
 
 /// 规则无法在纯 Dart 侧求值。
 class RuleUnsupported implements Exception {
