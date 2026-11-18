@@ -153,8 +153,8 @@ void main() {
 
     test('timeFormat 秒与毫秒都能处理', () {
       final api = JsHostApi(_context(fetch: (r, {String? header}) async => ''));
-      // 2026-11-18 09:05:07 的秒级时间戳
-      const seconds = 1794908707;
+      // 2026-11-18 09:05:07 +08:00 的秒级时间戳（用 DateTimeOffset 算出来的）
+      const seconds = 1794963907;
       expect(api.timeFormat('$seconds'), '2026/11/18 09:05');
       expect(api.timeFormat('${seconds}000'), '2026/11/18 09:05');
     });
