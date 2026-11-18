@@ -8,6 +8,7 @@ import 'package:flutter/material.dart';
 import 'book_source.dart';
 import 'engine_probe.dart';
 import 'fanqie_theme.dart';
+import 'source_bootstrap.dart';
 import 'source_repository.dart';
 
 class SourceManagerPage extends StatefulWidget {
@@ -93,6 +94,16 @@ class _SourceManagerPageState extends State<SourceManagerPage> {
         children: [
           Text(stats.summary, style: TextStyle(color: paper.ink, fontSize: 13)),
           const SizedBox(height: 4),
+          // 加载诊断：0 条时必须能看出是 asset 没进包还是解析失败
+          Text(
+            '加载：${FanhuoSourceBootstrap.instance.loadTrace}',
+            style: TextStyle(
+              fontSize: 11,
+              color: stats.total == 0
+                  ? Colors.red.shade700
+                  : paper.raised(0.45),
+            ),
+          ),
           Text(stats.tierSummary(),
               style: TextStyle(color: paper.raised(0.55), fontSize: 12)),
           Text(stats.packSummary(),

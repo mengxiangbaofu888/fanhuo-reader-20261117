@@ -13,7 +13,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart' show compute;
-import 'package:flutter/services.dart' show rootBundle;
+import 'package:flutter/services.dart' show AssetManifest, rootBundle;
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -65,12 +65,15 @@ class FanhuoSourceBootstrap {
         ..addAll(prefs.getStringList(_disabledKey) ?? const []);
       _settings = FanqieReaderSettings.fromRecord(prefs.getString(_settingsKey));
 
-      final raw = await rootBundle.loadString(_assetPath);
+      final raw = await _readAsset();
+      _loadTrace = 'asset ${(raw.length / 1024 / 1024).toStringAsFixed(2)} MB';
       // 11.5 MB 的解析放 isolate，避免卡首帧。
       final parsed = raw.length < 2 * 1024 * 1024
           ? BookSourceRepository.parse(raw)
           : await compute(_parseInIsolate, raw);
+      _loadTrace = '$_loadTrace，解析 ${parsed.length} 条';
       _repository = _filterDisabled(parsed);
+      _loadTrace = '$_loadTrace，过滤后 ${_repository.length} 条';
 
       // 书源 → 上游 Novel 适配器。离线缓存要先 load()，否则 saveBook 会用空索引。
       // 缓存目录放应用私有目录下的 fanhuo/，和上游的 offline 缓存分开，
@@ -87,12 +90,46 @@ class FanhuoSourceBootstrap {
         cache: cache,
       );
 
+      _loadTrace = '$_loadTrace，就绪';
       if (!_loaded.isCompleted) _loaded.complete();
     } catch (error, stack) {
-      // 书源包坏了不能让 App 起不来：保留空仓库，上层显示「没有可用书源」。
+      // 书源包坏了不能让 App 起不来：保留空仓库。
+      // 但**必须把原因留下来** —— 1.5.3 前这里静默吞异常，
+      // 用户只看到「共 0 条」，查不出是 asset 还是解析出的问题。
+      _loadError = '$error';
+      _loadTrace = '失败：$error';
       if (!_loaded.isCompleted) _loaded.completeError(error, stack);
     }
   }
+
+  /// 读 assets 里的书源包。失败时按「打包路径」再试一次，
+  /// 因为不同 Flutter 版本下 `rootBundle` 的 key 有时要带 `packages/` 前缀。
+  Future<String> _readAsset() async {
+    try {
+      return await rootBundle.loadString(_assetPath);
+    } catch (first) {
+      try {
+        return await rootBundle.loadString('assets/$_assetPath');
+      } catch (_) {
+        // 两条都不通就把原始错误抛上去，附上可用的 asset 清单
+        final manifest = await AssetManifest.loadFromAssetBundle(rootBundle);
+        final names = manifest
+            .listAssets()
+            .where((n) => n.contains('fanhuo'))
+            .toList();
+        throw StateError(
+          '读不到 $_assetPath（$first）；包内 fanhuo 资源：'
+          '${names.isEmpty ? "一个都没有" : names.join(", ")}',
+        );
+      }
+    }
+  }
+
+  /// 加载过程的诊断信息，管理页会显示出来。
+  String _loadTrace = '未开始';
+  String? _loadError;
+  String get loadTrace => _loadTrace;
+  String? get loadError => _loadError;
 
   OfflineCacheStore? _cache;
   OfflineCacheStore? get cache => _cache;
