@@ -1,7 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:wenku8_flutter/fanhuo/js_host_api.dart';
-import 'package:wenku8_flutter/fanhuo/multi_source_search.dart';
 import 'package:wenku8_flutter/fanhuo/rule_engine.dart';
 
 /// 一个可控的假 fetch：记下请求，按 URL 决定返回什么。
