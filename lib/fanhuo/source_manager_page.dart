@@ -34,12 +34,6 @@ class _SourceManagerPageState extends State<SourceManagerPage> {
   String _keyword = '';
 
   @override
-  void dispose() {
-    _filter.dispose();
-    super.dispose();
-  }
-
-  @override
   void initState() {
     super.initState();
     // 同样订阅：书源包加载完成后要立刻刷出 2301 条
@@ -49,6 +43,7 @@ class _SourceManagerPageState extends State<SourceManagerPage> {
   @override
   void dispose() {
     FanhuoSourceBootstrap.instance.removeListener(_onBoot);
+    _filter.dispose();
     super.dispose();
   }
 
