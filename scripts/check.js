@@ -72,7 +72,7 @@ else {
     else tiers[tier] += 1;
     // 与 Dart 侧 searchable 的判定保持一致
     if (!s.enabled || !s.searchUrl) continue;
-    if (tier === 'mid' || tier === 'hard') continue;
+    if (tier === 'hard') continue;
     searchable += 1;
   }
   ok.push(`可搜 ${searchable} 条`);
@@ -80,7 +80,7 @@ else {
   if (tiers.simple + tiers.mid + tiers.hard === 0) {
     fail.push('jsTier 一个都没打，先跑一次分级');
   }
-  if (searchable < 1400) fail.push(`可搜数量应 ≥ 1400（子集解释器生效后），实际 ${searchable}`);
+  if (searchable < 1600) fail.push(`可搜数量应 ≥ 1600（子集 + 引擎都放行后），实际 ${searchable}`);
   ok.push(`来源：${Object.entries(packs).map(([k, v]) => `${k} ${v}`).join(' / ')}`);
   const seen = new Set();
   let dup = 0;
