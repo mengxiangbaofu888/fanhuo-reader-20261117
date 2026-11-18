@@ -10,7 +10,7 @@ class FakeFetch {
   final Map<String, String> responses;
   final List<String> requested = [];
 
-  Future<String> call(SearchRequest request) async {
+  Future<String> call(SearchRequest request, {String? header}) async {
     requested.add(request.url);
     for (final entry in responses.entries) {
       if (request.url.contains(entry.key)) return entry.value;
@@ -20,7 +20,7 @@ class FakeFetch {
 }
 
 JsRuntimeContext _context({
-  required Future<String> Function(SearchRequest) fetch,
+  required Future<String> Function(SearchRequest, {String? header}) fetch,
   List<String> hosts = const ['example.com'],
   String result = '',
   String baseUrl = '',
@@ -92,14 +92,15 @@ void main() {
     });
 
     test('抓取失败返回空串而不是抛', () async {
-      Future<String> boom(SearchRequest _) async => throw StateError('网络挂了');
+      Future<String> boom(SearchRequest _, {String? header}) async =>
+          throw StateError('网络挂了');
       final api = JsHostApi(_context(fetch: boom));
       expect(await api.ajax('https://example.com/a'), '');
     });
 
     test('post 带上 body', () async {
       final captured = <String>[];
-      Future<String> fetch(SearchRequest request) async {
+      Future<String> fetch(SearchRequest request, {String? header}) async {
         captured.add('${request.method} ${request.body}');
         return 'ok';
       }
@@ -113,7 +114,7 @@ void main() {
   group('java.put / get / getString', () {
     test('KV 存取', () {
       final ctx = JsRuntimeContext(
-        fetch: (r) async => '',
+        fetch: (r, {String? header}) async => '',
         allowList: HostAllowList(['example.com']),
         cookieJar: JsCookieJar(),
       );
@@ -125,7 +126,7 @@ void main() {
 
     test('JSONPath 取嵌套字段', () {
       final ctx = JsRuntimeContext(
-        fetch: (r) async => '',
+        fetch: (r, {String? header}) async => '',
         allowList: HostAllowList(['example.com']),
         cookieJar: JsCookieJar(),
       );
@@ -152,7 +153,7 @@ void main() {
     });
 
     test('timeFormat 秒与毫秒都能处理', () {
-      final api = JsHostApi(_context(fetch: (r) async => ''));
+      final api = JsHostApi(_context(fetch: (r, {String? header}) async => ''));
       // 2026-11-18 09:05:07 的秒级时间戳
       const seconds = 1794908707;
       expect(api.timeFormat('$seconds'), '2026/11/18 09:05');
@@ -160,7 +161,7 @@ void main() {
     });
 
     test('timeFormat 空值返回空串', () {
-      final api = JsHostApi(_context(fetch: (r) async => ''));
+      final api = JsHostApi(_context(fetch: (r, {String? header}) async => ''));
       expect(api.timeFormat(null), '');
       expect(api.timeFormat('0'), '');
     });
@@ -171,7 +172,7 @@ void main() {
       final result = await RuleEngine.executeJsWithEngine(
         '@js:Packages.javax.crypto.Cipher.getInstance("AES")',
         result: '',
-        fetch: (r) async => '',
+        fetch: (r, {String? header}) async => '',
         allowList: HostAllowList(['example.com']),
         tier: 'hard',
       );
@@ -182,7 +183,7 @@ void main() {
       final result = await RuleEngine.executeJsWithEngine(
         r"@js:'http://x.com'+result",
         result: '/a',
-        fetch: (r) async => throw StateError('不该发请求'),
+        fetch: (r, {String? header}) async => throw StateError('不该发请求'),
         allowList: HostAllowList(['x.com']),
         tier: 'simple',
       );
@@ -193,7 +194,7 @@ void main() {
       final result = await RuleEngine.executeJsWithEngine(
         '@js:java.ajax(result)',
         result: 'https://example.com/a',
-        fetch: (r) async => 'ok',
+        fetch: (r, {String? header}) async => 'ok',
         allowList: HostAllowList(['example.com']),
         tier: 'mid',
       );
