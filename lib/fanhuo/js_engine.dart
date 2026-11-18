@@ -201,15 +201,40 @@ class JsEnginePool {
     try {
       final runtime = worker.runtime;
       // 每次执行都重装胶水：脚本少、代价几十毫秒，换来实例之间不串味
-      runtime.evaluate(buildJsGlue());
-      runtime.evaluate(_prelude(globals));
-      final result = await runtime
-          .evaluateAsync(script)
-          .timeout(const Duration(seconds: 5));
-      if (result.isError) {
-        throw JsEngineFailure(result.stringResult);
+      final glueResult = runtime.evaluate(buildJsGlue());
+      if (glueResult.isError) {
+        throw JsEngineFailure('胶水注入失败：${glueResult.stringResult}');
       }
-      return result.stringResult;
+      final preludeResult = runtime.evaluate(_prelude(globals));
+      if (preludeResult.isError) {
+        throw JsEngineFailure('全局变量注入失败：${preludeResult.stringResult}');
+      }
+      // 第一步：同步求值。异步桥（Promise）在 QuickJS 上不一定被 await，
+      // 所以先拿同步结果；需要网络的脚本再走第二步。
+      final syncResult = runtime.evaluate(script);
+      if (syncResult.isError) {
+        throw JsEngineFailure(_clean(syncResult));
+      }
+      final syncText = syncResult.stringResult;
+
+      // 第二步：如果同步返回的是 Promise 壳（空串或 '[object Promise]'），
+      // 用 evaluateAsync 再试一次 —— JSC 会等，QuickJS 可能不等。
+      if (syncText.isEmpty || syncText.contains('[object Promise]')) {
+        _drainMicrotasks(runtime);
+        final awaited = await runtime
+            .evaluateAsync(script)
+            .timeout(const Duration(seconds: 5));
+        if (awaited.isError) {
+          throw JsEngineFailure(_clean(awaited));
+        }
+        final awaitedText = awaited.stringResult;
+        if (awaitedText.isNotEmpty && !awaitedText.contains('[object Promise]')) {
+          return awaitedText;
+        }
+        // 还是空：把 Promise 自己序列化出来，让上层看得见
+        return _describePromise(runtime, script);
+      }
+      return syncText;
     } on TimeoutException {
       // QuickJS 没法安全中断长脚本，只能把这个实例废掉重建
       worker.broken = true;
@@ -217,6 +242,42 @@ class JsEnginePool {
       throw const JsEngineFailure('脚本执行超时（5 秒）');
     } finally {
       worker.lastUsed = DateTime.now();
+    }
+  }
+
+  /// 把 QuickJS 的报错洗成人能看的：去掉堆栈，只留第一行。
+  static String _clean(JsEvalResult result) =>
+      result.stringResult.split('\n').first.trim();
+
+  /// 跑一遍 QuickJS 的 microtask 队列，让 Promise 有机会完成。
+  void _drainMicrotasks(JavascriptRuntime runtime) {
+    try {
+      runtime.executePendingJob();
+    } catch (_) {
+      // 引擎没暴露这个能力就算了
+    }
+  }
+
+  /// 同步与 await 都拿不到值时，把 Promise 的状态和已 resolve 的值打出来，
+  /// 让「引擎不能用」变成一条能看懂的信息。
+  String _describePromise(JavascriptRuntime runtime, String script) {
+    try {
+      final probe = runtime.evaluate('''
+(function () {
+  try {
+    var r = (function () { return ($script); })();
+    if (!r || typeof r.then !== 'function') return 'non-promise:' + String(r);
+    var state = 'pending';
+    var val = '';
+    r.then(function (v) { state = 'fulfilled'; val = String(v); },
+           function (e) { state = 'rejected'; val = String(e); });
+    return 'promise:' + state + ':' + val;
+  } catch (e) { return 'error:' + String(e); }
+})()
+''');
+      return probe.stringResult;
+    } catch (error) {
+      return 'promise-probe-failed:$error';
     }
   }
 

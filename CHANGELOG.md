@@ -2,6 +2,62 @@
 
 本项目版本号遵循 `主.次.补`，`versionCode = 主*10000 + 次*100 + 补`。
 
+## [1.5.3] - 2026-11-18
+
+修一个**从 1.1.0 起就一直存在、但一直没被发现**的严重问题：正式包里根本没有书源。
+
+### 主问题：书源包从来没被打进 APK
+
+截图证据：书源 tab 显示「共 0 条 · 可搜 0」，书源管理里「没有匹配的书源」。
+
+根因在 `scripts/apply-patches.js` 的第 2 步：
+
+```js
+for (const name of [
+  'kuangye-bookSources-133-probed.json',   // ← 只有这个
+  'fanqie-presets.json',
+  'ai-providers.json',
+]) { ... }
+```
+
+而 `source_bootstrap.dart` 加载的是：
+
+```dart
+static const _assetPath = 'assets/fanhuo/bookSources-merged.json';
+```
+
+**Code 读合并包，脚本只拷了旷野 133 条的旧包** —— 所以 `_repository` 一直是空的，
+`stats()` 全是 0，搜索队列也是空的。本地的 `check.js` 只检查了 `data/` 里的源文件，
+没检查它有没有被拷进 `assets/`，CI 四关全绿却打出空包。
+
+修法：
+
+1. 拷贝清单加上 `bookSources-merged.json`
+2. 拷完立刻校验：文件存在且 > 5 MB，否则脚本直接退出
+3. `check.js` 增加两项：
+   - `apply-patches.js` 是否包含这个文件名
+   - 底座 `_wenku_base/assets/fanhuo/bookSources-merged.json` 是否存在且 > 5 MB
+
+### 次问题：引擎自检的报错信息
+
+「脚本执行失败：type 'List<dynamic>' is not a subtype of type 'String' of 'optimized out'」
+是 `flutter_js` 内部 `return jsEval(ctx, "'$result';").rawResult` 抛的，
+被上层 `catch (_)` 吞成了通用文案，看不出真实原因。
+
+现在引擎执行改成三步，每步单独报错：
+
+1. 胶水注入 → 失败报「胶水注入失败」
+2. 全局变量注入 → 失败报「全局变量注入失败」
+3. `evaluate(script)` 同步求值 → 报错时只留第一行（去掉堆栈）
+
+同步结果若是空串或 `[object Promise]`，再走 `evaluateAsync` 并 `executePendingJob()`
+跑一遍 microtask 队列；两条都拿不到值时，把 Promise 的状态和已 resolve 值打出来
+（`promise:fulfilled:xxx` / `promise:pending:` / `promise:rejected:xxx`），
+让「引擎不能用」变成一条能看懂的信息。
+
+> 这一步是诊断增强，不是功能修复。`java.ajax` 这类异步宿主 API 在 QuickJS 上
+> 能不能等回结果，要看 1.5.3 装上去自检的输出才能定。
+
 ## [1.5.2] - 2026-11-18
 
 修 1.5.1 引擎自检报的那个错。

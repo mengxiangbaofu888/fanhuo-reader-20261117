@@ -87,6 +87,10 @@ for (const name of patches) {
 const assetDir = path.join(BASE, 'assets', 'fanhuo');
 fs.mkdirSync(assetDir, { recursive: true });
 for (const name of [
+  // ⚠️ 合并包才是 App 真正加载的（2301 条）。
+  // 1.5.2 及以前的正式包一直是 0 条书源，就是因为漏了这一行 ——
+  // 代码里读 assets/fanhuo/bookSources-merged.json，但从来没拷进去。
+  'bookSources-merged.json',
   'kuangye-bookSources-133-probed.json',
   'fanqie-presets.json',
   'ai-providers.json',
@@ -97,8 +101,24 @@ for (const name of [
     process.exit(1);
   }
   fs.copyFileSync(src, path.join(assetDir, name));
-  log(`data/${name} → assets/fanhuo/${name}`);
+  const mb = (fs.statSync(src).size / 1024 / 1024).toFixed(1);
+  log(`data/${name} → assets/fanhuo/${name}（${mb} MB）`);
 }
+
+// 拷完立刻验：书源包必须存在且体积合理，否则打出来的包必然「共 0 条」
+const mergedAsset = path.join(assetDir, 'bookSources-merged.json');
+if (!fs.existsSync(mergedAsset)) {
+  console.error('[apply-patches] 合并书源没进 assets，App 会显示「共 0 条」');
+  process.exit(1);
+}
+const mergedBytes = fs.statSync(mergedAsset).size;
+if (mergedBytes < 5 * 1024 * 1024) {
+  console.error(
+    `[apply-patches] 合并书源只有 ${mergedBytes} 字节，明显不对（应 > 5 MB）`,
+  );
+  process.exit(1);
+}
+log(`书源包进包校验通过：${(mergedBytes / 1024 / 1024).toFixed(1)} MB`);
 
 /* ---------- 3. lib/fanhuo → _wenku_base/lib/fanhuo ---------- */
 const libSrc = path.join(ROOT, 'lib', 'fanhuo');

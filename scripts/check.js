@@ -94,6 +94,23 @@ else {
   else ok.push('书源域名去重通过');
 }
 
+// 合并书源必须真的会被拷进 App 的 assets —— 1.5.2 及以前一直漏拷，
+// 结果打出来的包「共 0 条」，是本次最严重的回归。
+{
+  const ap = read('scripts/apply-patches.js');
+  if (!ap.includes("'bookSources-merged.json'")) {
+    fail.push('apply-patches.js 没有把 bookSources-merged.json 拷进 assets（App 会显示 0 条）');
+  } else {
+    ok.push('apply-patches.js 会把合并书源拷进 assets');
+  }
+  const bundled = path.join(__dirname, '..', '_wenku_base', 'assets', 'fanhuo', 'bookSources-merged.json');
+  if (fs.existsSync(bundled)) {
+    const mb = fs.statSync(bundled).size / 1024 / 1024;
+    if (mb < 5) fail.push(`底座里的书源包只有 ${mb.toFixed(1)} MB，不对`);
+    else ok.push(`底座书源包 ${mb.toFixed(1)} MB`);
+  }
+}
+
 const presets = JSON.parse(read('data/fanqie-presets.json'));
 if (!presets.papers || Object.keys(presets.papers).length !== 5) {
   fail.push('番茄预设应有 5 套正文底色');
