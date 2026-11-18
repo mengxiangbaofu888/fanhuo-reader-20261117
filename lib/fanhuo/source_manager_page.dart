@@ -6,6 +6,7 @@ library;
 import 'package:flutter/material.dart';
 
 import 'book_source.dart';
+import 'engine_probe.dart';
 import 'fanqie_theme.dart';
 import 'source_repository.dart';
 
@@ -98,13 +99,70 @@ class _SourceManagerPageState extends State<SourceManagerPage> {
               style: TextStyle(color: paper.raised(0.6), fontSize: 12)),
           const SizedBox(height: 4),
           Text(
-            'JS 分档：simple 由内置子集解释器直接执行（已进搜索队列）；'
-            'mid 要等 QuickJS 引擎；hard 依赖 Java 反射，不支持。',
+            'JS 分档：simple 走内置子集解释器，mid 走 QuickJS 引擎'
+            '（两条都进搜索队列）；hard 依赖 Java 反射，不支持。',
             style: TextStyle(color: paper.raised(0.5), fontSize: 11),
           ),
+          const SizedBox(height: 10),
+          _probeRow(paper),
         ],
       ),
     );
+  }
+
+  /// 引擎自检按钮。点一次跑一段固定脚本，直接告诉你 QuickJS 在这台手机上能不能用。
+  bool _probing = false;
+  EngineProbeResult? _probeResult;
+
+  Widget _probeRow(FanqiePaper paper) {
+    final result = _probeResult;
+    return Row(
+      children: [
+        OutlinedButton.icon(
+          onPressed: _probing ? null : _runProbe,
+          icon: _probing
+              ? const SizedBox(
+                  width: 14,
+                  height: 14,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : const Icon(Icons.play_circle_outline, size: 18),
+          label: Text(_probing ? '检测中…' : '引擎自检'),
+          style: OutlinedButton.styleFrom(
+            foregroundColor: paper.ink,
+            side: BorderSide(color: paper.raised(0.25)),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+            textStyle: const TextStyle(fontSize: 12),
+          ),
+        ),
+        const SizedBox(width: 10),
+        if (result != null)
+          Expanded(
+            child: Text(
+              '${result.label}：${result.detail}',
+              maxLines: 3,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontSize: 11,
+                color: result.ok ? Colors.green.shade700 : Colors.red.shade700,
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+
+  Future<void> _runProbe() async {
+    setState(() {
+      _probing = true;
+      _probeResult = null;
+    });
+    final result = await runEngineProbe();
+    if (!mounted) return;
+    setState(() {
+      _probing = false;
+      _probeResult = result;
+    });
   }
 
   Widget _filters(FanqiePaper paper) {
