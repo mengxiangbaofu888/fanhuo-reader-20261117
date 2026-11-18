@@ -19,6 +19,7 @@ import 'fanqie_settings.dart';
 import 'fanqie_theme.dart';
 import 'multi_source_search.dart';
 import 'source_manager_page.dart';
+import 'source_bootstrap.dart';
 import 'source_repository.dart';
 import 'source_search_page.dart';
 
@@ -56,6 +57,25 @@ typedef BookSourceLike = dynamic;
 class _FanhuoHomeState extends State<FanhuoHome> {
   late FanqieReaderSettings _settings = widget.settings;
 
+  /// 书源包是异步加载的，页面构造时拿到的 `repository` 可能还是空仓库。
+  /// 所以这里订阅 bootstrap：仓库一换就重建，避免「加载：2301 条就绪」
+  /// 和「共 0 条」同时出现在一屏的怪现象。
+  @override
+  void initState() {
+    super.initState();
+    FanhuoSourceBootstrap.instance.addListener(_onBootstrapChanged);
+  }
+
+  @override
+  void dispose() {
+    FanhuoSourceBootstrap.instance.removeListener(_onBootstrapChanged);
+    super.dispose();
+  }
+
+  void _onBootstrapChanged() {
+    if (mounted) setState(() {});
+  }
+
   @override
   Widget build(BuildContext context) {
     final paper = _settings.paper;
@@ -66,7 +86,9 @@ class _FanhuoHomeState extends State<FanhuoHome> {
       line: _settings.line,
       paragraph: _settings.paragraph,
     );
-    final stats = widget.repository.stats();
+    // 现取，不用 repository 那份构造时的快照
+    final repository = FanhuoSourceBootstrap.instance.repository;
+    final stats = repository.stats();
     return Theme(
       data: theme,
       child: Scaffold(
@@ -107,7 +129,7 @@ class _FanhuoHomeState extends State<FanhuoHome> {
                     () => Navigator.of(context).push(
                           MaterialPageRoute<void>(
                             builder: (_) => SourceSearchPage(
-                              repository: widget.repository,
+                              repository: repository,
                               fetch: widget.fetch,
                               onOpenNovel: widget.onOpenNovel,
                             ),
@@ -123,7 +145,7 @@ class _FanhuoHomeState extends State<FanhuoHome> {
                 onTap: () => Navigator.of(context).push(
                   MaterialPageRoute<void>(
                     builder: (_) => SourceManagerPage(
-                      repository: widget.repository,
+                      repository: repository,
                       onToggle: widget.onToggleSource,
                     ),
                   ),

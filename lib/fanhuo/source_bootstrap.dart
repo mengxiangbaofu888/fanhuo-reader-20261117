@@ -18,6 +18,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../offline_cache.dart';
+import 'app_log.dart';
 import 'book_source.dart';
 import 'fanqie_settings.dart';
 import 'gbk_tables.dart';
@@ -25,7 +26,7 @@ import 'rule_engine.dart';
 import 'source_novel_repository.dart';
 import 'source_repository.dart';
 
-class FanhuoSourceBootstrap {
+class FanhuoSourceBootstrap extends ChangeNotifier {
   FanhuoSourceBootstrap._();
 
   static final FanhuoSourceBootstrap instance = FanhuoSourceBootstrap._();
@@ -54,7 +55,13 @@ class FanhuoSourceBootstrap {
   void start() {
     if (_started) return;
     _started = true;
-    unawaited(_load());
+    unawaited(_boot());
+  }
+
+  Future<void> _boot() async {
+    // 先把日志开起来，后面每一步才有记录
+    await AppLog.init();
+    await _load();
   }
 
   Future<void> _load() async {
@@ -65,15 +72,20 @@ class FanhuoSourceBootstrap {
         ..addAll(prefs.getStringList(_disabledKey) ?? const []);
       _settings = FanqieReaderSettings.fromRecord(prefs.getString(_settingsKey));
 
+      AppLog.info('bookSource', '开始读 asset: $_assetPath');
       final raw = await _readAsset();
       _loadTrace = 'asset ${(raw.length / 1024 / 1024).toStringAsFixed(2)} MB';
+      AppLog.info('bookSource', 'asset 读取成功：${raw.length} 字节');
       // 11.5 MB 的解析放 isolate，避免卡首帧。
       final parsed = raw.length < 2 * 1024 * 1024
           ? BookSourceRepository.parse(raw)
           : await compute(_parseInIsolate, raw);
       _loadTrace = '$_loadTrace，解析 ${parsed.length} 条';
+      AppLog.info('bookSource', '解析完成：${parsed.length} 条');
       _repository = _filterDisabled(parsed);
       _loadTrace = '$_loadTrace，过滤后 ${_repository.length} 条';
+      notifyListeners();
+      AppLog.info('bookSource', '过滤后：${_repository.length} 条，可搜 ${_repository.searchable.length} 条');
 
       // 书源 → 上游 Novel 适配器。离线缓存要先 load()，否则 saveBook 会用空索引。
       // 缓存目录放应用私有目录下的 fanhuo/，和上游的 offline 缓存分开，
@@ -91,6 +103,8 @@ class FanhuoSourceBootstrap {
       );
 
       _loadTrace = '$_loadTrace，就绪';
+      notifyListeners();
+      AppLog.info('bookSource', '书源运行时就绪');
       if (!_loaded.isCompleted) _loaded.complete();
     } catch (error, stack) {
       // 书源包坏了不能让 App 起不来：保留空仓库。
@@ -98,6 +112,8 @@ class FanhuoSourceBootstrap {
       // 用户只看到「共 0 条」，查不出是 asset 还是解析出的问题。
       _loadError = '$error';
       _loadTrace = '失败：$error';
+      notifyListeners();
+      AppLog.error('bookSource', '加载失败：$error', stack);
       if (!_loaded.isCompleted) _loaded.completeError(error, stack);
     }
   }

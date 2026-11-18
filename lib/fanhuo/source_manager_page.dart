@@ -8,6 +8,7 @@ import 'package:flutter/material.dart';
 import 'book_source.dart';
 import 'engine_probe.dart';
 import 'fanqie_theme.dart';
+import 'log_viewer_page.dart';
 import 'source_bootstrap.dart';
 import 'source_repository.dart';
 
@@ -39,6 +40,23 @@ class _SourceManagerPageState extends State<SourceManagerPage> {
   }
 
   @override
+  void initState() {
+    super.initState();
+    // 同样订阅：书源包加载完成后要立刻刷出 2301 条
+    FanhuoSourceBootstrap.instance.addListener(_onBoot);
+  }
+
+  @override
+  void dispose() {
+    FanhuoSourceBootstrap.instance.removeListener(_onBoot);
+    super.dispose();
+  }
+
+  void _onBoot() {
+    if (mounted) setState(() {});
+  }
+
+  @override
   Widget build(BuildContext context) {
     const paper = FanqiePaper.yellow;
     final theme = fanqieReaderTheme(
@@ -48,8 +66,10 @@ class _SourceManagerPageState extends State<SourceManagerPage> {
       line: FanqieLineSpacing.normal,
       paragraph: FanqieParagraphSpacing.normal,
     );
-    final stats = widget.repository.stats();
-    var list = widget.repository.query(_keyword);
+    // 现取，不用构造时的快照
+    final repository = FanhuoSourceBootstrap.instance.repository;
+    final stats = repository.stats();
+    var list = repository.query(_keyword);
     if (_pack != null) {
       list = list.where((p) => p.pack == _pack).toList(growable: false);
     }
@@ -62,6 +82,15 @@ class _SourceManagerPageState extends State<SourceManagerPage> {
           backgroundColor: paper.background,
           foregroundColor: paper.ink,
           elevation: 0,
+          actions: [
+            IconButton(
+              tooltip: '运行日志',
+              icon: const Icon(Icons.article_outlined),
+              onPressed: () => Navigator.of(context).push(
+                MaterialPageRoute<void>(builder: (_) => const LogViewerPage()),
+              ),
+            ),
+          ],
         ),
         body: Column(
           children: [

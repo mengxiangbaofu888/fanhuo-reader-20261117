@@ -2,6 +2,62 @@
 
 本项目版本号遵循 `主.次.补`，`versionCode = 主*10000 + 次*100 + 补`。
 
+## [1.6.0] - 2026-11-18
+
+**找到「加载显示 2301 条但列表 0 条」的真因了，同时加上文件日志与 App 内日志查看。**
+
+### 真因：页面拿的是异步加载前的空快照
+
+`pages.dart` 里书源页是 `late final`，在 `HomeShell.initState` 里一次性构造：
+
+```dart
+late final FanhuoHomeTab _fanhuoPage = FanhuoHomeTab(
+  repository: FanhuoSourceBootstrap.instance.repository,   // ← 此刻还是空仓库
+  ...
+);
+```
+
+而书源包 11.5 MB 是**异步**读取 + `compute` 解析的，等它完成时页面早就建好了。
+于是同一屏出现两个时刻的数据：
+
+| 界面元素 | 数据来源 | 结果 |
+|---|---|---|
+| 「加载：asset 10.98 MB，解析 2301 条，就绪」 | `bootstrap.loadTrace`，实时 | 正确 |
+| 「共 0 条 · 可搜 0」 | `widget.repository.stats()`，构造时快照 | 永远是 0 |
+
+修法：
+
+1. `FanhuoSourceBootstrap` 改 `extends ChangeNotifier`，仓库替换后 `notifyListeners()`
+2. `FanhuoHome` / `SourceManagerPage` 在 `initState` 订阅它，`dispose` 退订
+3. 两个页面 `build` 时**现取** `FanhuoSourceBootstrap.instance.repository`，
+   不再用构造时传进来的那份快照
+
+### 新增：文件日志 `app_log.dart`
+
+- 写到 `应用私有目录/logs/app-YYYYMMDD.log`（`path_provider`，无需存储权限）
+- 按天切分、单文件 2 MB 上限、保留最近 7 天
+- 内存留最近 500 行，界面秒开
+- 已打点的关键路径：
+  - `开始读 asset` / `asset 读取成功（字节数）`
+  - `解析完成 N 条` / `过滤后 N 条，可搜 M 条`
+  - `书源运行时就绪` / `加载失败：原因 + 堆栈`
+
+### 新增：App 内日志查看页
+
+书源管理页右上角「运行日志」：
+
+- 滚动查看 500 行
+- **复制全部**（把内容发给开发者即可）
+- 清空
+- 显示日志目录与 `adb shell run-as` 取法
+
+### 关于 adb
+
+本机 `adb devices` 枚举不到 iQOO Neo7（Windows 设备管理器里状态正常，
+ADB 接口绑的是 `WinUSB` 而非 Google 的 `android_winusb.inf`）。
+试过三套 adb（37.0.1 / 33.0.2 / 小米助手版）都不行。
+所以不依赖 adb：日志写文件、在 App 里直接看。
+
 ## [1.5.4] - 2026-11-18
 
 1.5.3 已经把书源包打进 APK 了（`assets/flutter_assets/assets/fanhuo/bookSources-merged.json`，11.54 MB，
