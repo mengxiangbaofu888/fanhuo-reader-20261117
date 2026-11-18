@@ -122,7 +122,7 @@ class JsEnginePool {
     _initialized = true;
     try {
       for (var i = 0; i < _size; i++) {
-        _workers.add(_Worker(JavascriptRuntime()));
+        _workers.add(_Worker(getJavascriptRuntime()));
       }
     } catch (error) {
       _available = false;
@@ -183,7 +183,7 @@ class JsEnginePool {
     } catch (_) {}
     if (_available) {
       try {
-        _workers[index] = _Worker(JavascriptRuntime());
+        _workers[index] = _Worker(getJavascriptRuntime());
       } catch (_) {
         _workers.removeAt(index);
       }
