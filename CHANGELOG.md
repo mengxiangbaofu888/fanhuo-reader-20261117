@@ -2,6 +2,80 @@
 
 本项目版本号遵循 `主.次.补`，`versionCode = 主*10000 + 次*100 + 补`。
 
+## [1.5.2] - 2026-11-18
+
+修 1.5.1 引擎自检报的那个错。
+
+### 现象
+
+点「引擎自检」，结果显示：
+
+```
+脚本执行失败：type 'List<dynamic>' is not a subtype of type 'String'
+of 'optimized out'
+#0 _TypeError._throwNew (dart:core-patch/errors_patch.dart:108)
+#1 Function._apply (dart:core-patch/function_patch.dart:11)
+```
+
+### 根因
+
+`flutter_js` 的桥接回调是**同步**的（FFI 直接调），实现里这么写：
+
+```dart
+String? result = 'NO RESULT YET';
+result = mapJsBridge[channelNameStr]!.call(jsonDecode(messageStr));
+...
+return QuickJsRuntime.jsEval(ctx, "'$result';").rawResult;
+```
+
+三个致命约束：
+
+1. 回调**必须同步返回**，返回 `Future` 会被整个塞进 `"'$result';"`
+2. 返回值**只能是 `String`**，返回 `null` / `List` / `Map` 都会在类型转换里炸
+3. 我第一版写的是 `async` 回调 + `return null` —— 两条都踩中
+
+### 修法
+
+把宿主 API 拆成两套通道：
+
+| 类型 | 通道 | 例子 |
+|---|---|---|
+| **同步** | `sendMessage` 直接返回字符串 | `java.put` / `java.getString` / `java.timeFormat` / `base64` / `md5` |
+| **异步** | 返回 `Promise`，Dart 拿到结果后回调 `__jsResolve` | `java.ajax` / `java.getUrl` / `java.post` / `java.connect` |
+
+JS 侧胶水改成：
+
+```js
+// 同步：桥接回调的返回值就是结果
+function __nativeCall(method, params) {
+  var r = sendMessage('__host__', [id, method, params]);
+  return r === null || r === undefined ? '' : String(r);
+}
+// 异步：返回 Promise，Dart 稍后调 __jsResolve
+function __nativeRequest(method, params) {
+  return new Promise(function (resolve) {
+    __jsResolveResolvers[id] = resolve;
+    sendMessage('__host__', [id, '__req__' + method, params]);
+  });
+}
+```
+
+Dart 侧遇到 `__req__` 前缀就 `unawaited(_request(...))` 并立刻返回空串，
+请求完成后 `evaluate('window.__jsResolve(id, value)')` 回填。
+
+### 自检也加强了
+
+现在跑**两段**：
+
+1. **同步 4 项**：正则捕获组 + 字符串拼接、`java.timeFormat`、`base64Decode`、`md5`
+2. **异步 1 项**：`java.ajax(...).then(...)` —— 验证 Promise 桥真的能回来
+
+结果文案变成「同步 4 项 + 异步 1 项全过」「同步部分不对」「异步桥不对」三种，
+出错时能直接看出是哪一半坏了。
+
+> 为什么异步那一项要单独写一句：`evaluateAsync` 只在脚本**最外层表达式是 Promise**
+> 时才等它。所以 `java.ajax` 必须放在最后一整句，不能混在字符串拼接里。
+
 ## [1.5.1] - 2026-11-18
 
 把 QuickJS 引擎真正接进搜索队列，并给一个能自查引擎的按钮。
