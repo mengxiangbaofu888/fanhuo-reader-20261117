@@ -1,6 +1,6 @@
 # 番茄阅读 Pro — 交接记录
 
-> 最后更新：2026-11-17 23:40（Asia/Shanghai）
+> 最后更新：2026-11-18 21:45（Asia/Shanghai）
 > 下次继续时先读这一份，不要重新翻聊天记录。
 
 ---
@@ -21,15 +21,16 @@
 
 ## 2. 当前状态（已知可用）
 
-**最新发布：v1.4.0** — <https://github.com/mengxiangbaofu888/fanhuo-reader-20261117/releases/tag/v1.4.0>
+**最新发布：v1.5.1** — <https://github.com/mengxiangbaofu888/fanhuo-reader-20261117/releases/tag/v1.5.1>
 
 | 资产 | 大小 |
 |---|---|
-| `fanhuo-reader-1.4.0-arm64.apk` | 50.3 MB |
-| `fanhuo-reader-1.4.0-armv7.apk` | 48.5 MB |
-| `fanhuo-reader-1.4.0-x64.apk` | 51.8 MB |
+| `fanhuo-reader-1.5.1-arm64.apk` | 51.4 MB |
+| `fanhuo-reader-1.5.1-armv7.apk` | 49.4 MB |
+| `fanhuo-reader-1.5.1-x64.apk` | 53.1 MB |
 
-CI 四关全绿：`check-version` → `test`（analyze 零问题 + 100 用例）→ `build ×3` → `verify-and-release`。
+CI 四关全绿：`check-version` → `test`（analyze 零问题 + 127 用例）→ `build ×3` → `verify-and-release`。
+三个包同一 release 证书 `0c43e2cb…`，**可覆盖升级**。
 
 版本历史：
 
@@ -39,7 +40,10 @@ CI 四关全绿：`check-version` → `test`（analyze 零问题 + 100 用例）
 | 1.1.0 | 接入 aoaostar 全量书源，2301 条（可搜 824） |
 | 1.2.0 | 书源挂进底部第 5 个 tab + 首屏失败提示条 |
 | 1.3.0 | 书源书接入上游阅读器（搜到书能读正文） |
-| **1.4.0** | **JS 子集解释器，可搜 824 → 1408** |
+| 1.4.0 | JS 子集解释器，可搜 824 → 1408 |
+| 1.4.1 | 配好 release 签名（此前全是 debug 证书，不能覆盖升级） |
+| 1.5.0 | 接 QuickJS + 宿主 API + 沙箱 + 引擎池 |
+| **1.5.1** | **mid 档放行，可搜 1408 → 1765；书源管理页加「引擎自检」按钮** |
 
 ---
 
@@ -65,37 +69,35 @@ CI 四关全绿：`check-version` → `test`（analyze 零问题 + 100 用例）
 |---|---|
 | 书源总数 | 2301 |
 | 有 searchUrl | 1811 |
-| **当前可搜** | **1408** |
-| **缺口** | **403** |
+| **当前可搜** | **1765** |
+| **缺口** | **46** |
 
-403 拆解：
+缺口拆解（1.5.1 之后）：
 
-- **369 条 `mid`** — 要宿主 API（`java.ajax` 186 / `java.get` 185 / `java.put` 149 / `java.getString` 93 / `JSON.parse` 87 / `java.timeFormat` 55 / `base64` 39 / `md5` 23）
 - **15 条 `hard`** — `Packages.javax.crypto.Cipher` 签名，建议跳过
-- 31 条源自己 `enabled:false`
-- **1 条**只卡 XPath
+- **31 条**源自己 `enabled:false`（用户可手动开）
 
-> ⚠️ 之前说「XPath 121 条」是错的。242 条源含 XPath，但 241 条同时可跑，真正只卡 XPath 的只有 1 个。**XPath 这条不用做了。**
+> 之前「XPath 121 条」的说法已修正：242 条源含 XPath，但 241 条同时可跑，真正只卡 XPath 的只有 1 个。**XPath 不用做了。**
+
+> `mid` 档 373 条已在 1.5.1 放行进搜索队列（走 QuickJS）。实测能不能搜到书取决于站点本身，不是引擎问题。
 
 ---
 
-## 5. 下一步（明天从这里开始）
+## 5. 下一步
 
-### 1.5.0 — 接 QuickJS，拿 +240 个源
+### 立刻要做（不在代码里）
 
-1. `pubspec.yaml` 加 `flutter_js: ^0.8.7`（Android 端走 JitPack 预编译 QuickJS `.aar`）
-2. 写 `lib/fanhuo/js_host_api.dart`：
-   - `java.ajax` / `java.get` / `java.post`（复用 `SourceBootstrap.fetch`）
-   - `java.put` / `java.get` / `java.getString`（线程内 KV + JSONPath 子集）
-   - `java.timeFormat`
-   - `base64Decode` / `base64Encode`
-   - `md5`（需加 `crypto` 依赖）
-3. 沙箱：域名白名单（只允许当前书源域名 + 书页域名）+ 5 秒超时 + 内存上限 + 引擎池（2-3 实例）
-4. `RuleEngine.executeJs` 里，子集失败 → 回落 QuickJS
+1. **真机验 1765 个源**：装上 1.5.1 → 书源 tab → 书源管理 → 点「引擎自检」
+   - 结果必须是「引擎可用」。若是「引擎不可用 / 脚本执行失败」，说明 QuickJS 在这台机器上起不来，
+     得改本地 fork + 预编译 `.so`（`flutter_js` 作者自己注释过 `SEGV_MAPERR on ARM`）
+   - 然后搜几个常见书名，看有多少源真的回结果
+2. **备份 keystore**：`D:\github\downloads\fanhuo-reader-20261117\signing\` → 复制到别处
 
-**完成标准**：`check.js` 的可搜数 ≥ 1600，CI 四关绿，发 v1.5.0。
+### 1.6.0 — `JSON.parse` + JS 对象遍历
 
-### 1.6.0 — `JSON.parse` + JS 对象遍历，再 +80 → 1728 / 1811 ≈ 95%
+子集解释器现在不支持 `JSON.parse`，QuickJS 里可以直接跑，但要让脚本能遍历返回的对象
+（`.forEach` / `.map` / 索引）还需要在 `js_subset.dart` 里补 JSON 解析。
+影响约 87 个源，属于「锦上添花」，优先级低于真机验证。
 
 ---
 
