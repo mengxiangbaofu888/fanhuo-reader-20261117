@@ -21,13 +21,13 @@
 
 ## 2. 当前状态（已知可用）
 
-**最新发布：v1.5.1** — <https://github.com/mengxiangbaofu888/fanhuo-reader-20261117/releases/tag/v1.5.1>
+**最新发布：v1.5.2** — <https://github.com/mengxiangbaofu888/fanhuo-reader-20261117/releases/tag/v1.5.2>
 
 | 资产 | 大小 |
 |---|---|
-| `fanhuo-reader-1.5.1-arm64.apk` | 51.4 MB |
-| `fanhuo-reader-1.5.1-armv7.apk` | 49.4 MB |
-| `fanhuo-reader-1.5.1-x64.apk` | 53.1 MB |
+| `fanhuo-reader-1.5.2-arm64.apk` | 51.4 MB |
+| `fanhuo-reader-1.5.2-armv7.apk` | 49.4 MB |
+| `fanhuo-reader-1.5.2-x64.apk` | 53.1 MB |
 
 CI 四关全绿：`check-version` → `test`（analyze 零问题 + 127 用例）→ `build ×3` → `verify-and-release`。
 三个包同一 release 证书 `0c43e2cb…`，**可覆盖升级**。
@@ -43,7 +43,8 @@ CI 四关全绿：`check-version` → `test`（analyze 零问题 + 127 用例）
 | 1.4.0 | JS 子集解释器，可搜 824 → 1408 |
 | 1.4.1 | 配好 release 签名（此前全是 debug 证书，不能覆盖升级） |
 | 1.5.0 | 接 QuickJS + 宿主 API + 沙箱 + 引擎池 |
-| **1.5.1** | **mid 档放行，可搜 1408 → 1765；书源管理页加「引擎自检」按钮** |
+| 1.5.1 | mid 档放行，可搜 1408 → 1765；书源管理页加「引擎自检」按钮 |
+| **1.5.2** | **修引擎桥接：同步回调必须返回 String，异步走 Promise** |
 
 ---
 
@@ -106,12 +107,20 @@ CI 四关全绿：`check-version` → `test`（analyze 零问题 + 127 用例）
 ### 必须记住的
 
 - **`apply-patches.js` 会从 `lib/fanhuo/` 覆盖底座** —— 改代码先改源文件
+- **`flutter_js` 桥接回调必须同步返回 String** —— 返回 `Future` / `null` / `List`
+  会在它内部的 `"'$result';"` 里炸成
+  `type 'List<dynamic>' is not a subtype of type 'String'`。
+  异步请求（`java.ajax`）只能走 Promise + `__jsResolve` 回填
+- **`evaluateAsync` 只等「最外层表达式是 Promise」** —— `java.ajax` 必须单独一整句放最后，
+  不能混在字符串拼接里，否则拿到的是空串
 - **`evaluateJs` 返回 `String`** —— 测试里数字要写 `'12'` 不是 `12`
 - **`OfflineCacheStore(Directory)` 要传参数** —— 用 `getApplicationSupportDirectory()/fanhuo`，和上游离线缓存分开
 - **`HttpClient` 没有 `userAgent` setter** —— 用 `req.headers.set(HttpHeaders.userAgentHeader, ua)`
 - **`SearchRequest` 在 `rule_engine.dart`，不在 `multi_source_search.dart`**
 - **`check-version` 关没有底座** —— `check-dart.js` 的相对 import 检查要判断 `_wenku_base/lib` 是否存在，否则误报
 - **pwsh 的 `Set-Location` 对后续 `[System.IO.File]` 不生效** —— 一律用绝对路径
+- **Contents API 大文件会静默失败** —— `js_engine.dart` 推 8 次都失败却显示「OK」，
+  远端仍是旧版。**推完必须读回远端内容比对关键字**，不一致就改走 Git Data API（blobs → trees → commits）
 
 ### flutter_js 的风险（未验证）
 
