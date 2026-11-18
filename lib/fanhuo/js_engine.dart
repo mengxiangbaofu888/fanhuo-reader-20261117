@@ -30,18 +30,34 @@ class JsEngineFailure implements Exception {
 }
 
 /// 单个引擎实例的包装：记录它的回调是否已注册、是否还可用。
+///
+/// ⚠️ 两条硬约束（踩过，别再犯）：
+///   1. `flutter_js` 的桥接回调是**同步**的（FFI 直调），
+///      返回 `Future` 会被当成值，最后在 `"'$result';"` 那里炸成
+///      `type 'List<dynamic>' is not a subtype of type 'String'`。
+///      —— 第一版就是 `async` 回调，自检直接报这个错。
+///   2. 回调返回值会被插进 `"'$result';"`，所以**只能返回 String**，
+///      不能返回 null / List / Map。
+/// 因此宿主 API 在这里只能给「同步值」，异步的 `java.ajax` 走 Promise 桥（见 [_nativeCallJs]）。
 class _Worker {
   _Worker(this.runtime) {
-    runtime.onMessage('__host__', (dynamic args) async {
+    runtime.onMessage('__host__', (dynamic args) {
       final list = args is List ? args : [args];
       final id = list.isNotEmpty ? list[0]?.toString() ?? '' : '';
       final method = list.length > 1 ? list[1]?.toString() ?? '' : '';
       final params = list.length > 2 ? list[2] : null;
-      final result = await _dispatch(method, params);
+      if (method.startsWith('__req__')) {
+        // 异步请求：立刻返回空串，结果稍后通过 __jsResolve 回填
+        unawaited(_request(id, method.substring(7), params));
+        return '';
+      }
+      final value = _dispatchSync(method, params);
       runtime.evaluate(
-        'window.__nativeResolve(${_jsString(id)}, ${_jsString(result)})',
+        'if (window.__nativeResolve) '
+        'window.__nativeResolve(${_jsString(id)}, ${_jsString(value)});',
       );
-      return null;
+      // 必须返回 String，且不能是 null
+      return value;
     });
   }
 
@@ -60,7 +76,11 @@ class _Worker {
     return '"$escaped"';
   }
 
-  Future<String> _dispatch(String method, Object? params) async {
+  /// 同步宿主 API 派发。只有这些能在这里直接返回。
+  ///
+  /// `ajax` / `getUrl` / `post` / `connect` 是异步的，不在这个表里 ——
+  /// 它们由 `_nativeCallJs` 生成的 Promise 走 [_request] 单独处理。
+  String _dispatchSync(String method, Object? params) {
     final api = host;
     if (api == null) return '';
     final args = params is List ? params : (params == null ? const [] : [params]);
@@ -68,14 +88,6 @@ class _Worker {
         index < args.length ? (args[index]?.toString() ?? '') : '';
     try {
       switch (method) {
-        case 'ajax':
-          return await api.ajax(arg(0));
-        case 'getUrl':
-          return await api.getUrl(arg(0));
-        case 'post':
-          return await api.post(arg(0), arg(1));
-        case 'connect':
-          return await api.connect(arg(0));
         case 'put':
           api.put(arg(0), arg(1));
           return '';
@@ -91,14 +103,47 @@ class _Worker {
           return JsHostApi.base64Encode(arg(0));
         case 'md5':
           return JsHostApi.md5Encode(arg(0));
+        case 'md5_16':
+          final digest = JsHostApi.md5Encode(arg(0));
+          return digest.length == 32 ? digest.substring(8, 24) : digest;
         case 'log':
           return JsHostApi.log(arg(0));
         default:
           return '';
       }
-    } catch (error) {
+    } catch (_) {
       // 脚本侧的异常不该把引擎带走，返回空串让它自己判空
       return '';
+    }
+  }
+
+  /// 异步请求：Dart 侧拿到结果后调用 JS 的 resolve 回调。
+  Future<void> _request(String reqId, String method, Object? params) async {
+    final api = host;
+    String result = '';
+    if (api != null) {
+      final args = params is List ? params : (params == null ? const [] : [params]);
+      String arg(int index) =>
+          index < args.length ? (args[index]?.toString() ?? '') : '';
+      try {
+        result = switch (method) {
+          'ajax' => await api.ajax(arg(0)),
+          'getUrl' => await api.getUrl(arg(0)),
+          'post' => await api.post(arg(0), arg(1)),
+          'connect' => await api.connect(arg(0)),
+          _ => '',
+        };
+      } catch (_) {
+        result = '';
+      }
+    }
+    try {
+      runtime.evaluate(
+        'if (window.__jsResolve) window.__jsResolve('
+        '${_jsString(reqId)}, ${_jsString(result)});',
+      );
+    } catch (_) {
+      // 实例可能已经超时被回收，忽略
     }
   }
 }
@@ -205,20 +250,40 @@ class JsEnginePool {
     buffer.writeln(r'''
 var __nativeSeq = 0;
 var __nativePending = {};
+var __jsReqSeq = 0;
+var __jsReqResolvers = {};
+
+// 同步调用：Dart 的桥接回调是同步的，`sendMessage` 的返回值就是结果
 function __nativeCall(method, params) {
   var id = String(__nativeSeq++);
-  sendMessage('__host__', [id, method, params]);
-  return '';
+  var r = sendMessage('__host__', [id, method, params]);
+  return r === null || r === undefined ? '' : String(r);
 }
+
+// 给 Dart 侧补调用的钩子（Dart 同步回调里会再调一次 __nativeResolve）
 function __nativeResolve(id, value) {
   var cb = __nativePending[id];
   if (cb) { delete __nativePending[id]; cb(value); }
 }
-function __native_ajax(u) { return __nativeCall('ajax', [u]); }
-function __native_getUrl(u) { return __nativeCall('getUrl', [u]); }
-function __native_post(u, b) { return __nativeCall('post', [u, b]); }
-function __native_connect(u) { return __nativeCall('connect', [u]); }
-function __native_put(k, v) { __nativeCall('put', [k, v]); }
+
+// 异步请求：返回 Promise，Dart 那边拿到结果后调 __jsResolve
+function __nativeRequest(method, params) {
+  var id = String(__jsReqSeq++);
+  return new Promise(function (resolve) {
+    __jsReqResolvers[id] = resolve;
+    sendMessage('__host__', [id, '__req__' + method, params]);
+  });
+}
+function __jsResolve(id, value) {
+  var cb = __jsReqResolvers[id];
+  if (cb) { delete __jsReqResolvers[id]; cb(value); }
+}
+
+function __native_ajax(u) { return __nativeRequest('ajax', [u]); }
+function __native_getUrl(u) { return __nativeRequest('getUrl', [u]); }
+function __native_post(u, b) { return __nativeRequest('post', [u, b]); }
+function __native_connect(u) { return __nativeRequest('connect', [u]); }
+function __native_put(k, v) { return __nativeCall('put', [k, v]); }
 function __native_getvar(k) { return __nativeCall('getvar', [k]); }
 function __native_getString(p) { return __nativeCall('getString', [p]); }
 function __native_timeFormat(t, p) { return __nativeCall('timeFormat', [t, p]); }
