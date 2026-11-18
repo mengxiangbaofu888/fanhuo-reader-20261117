@@ -68,16 +68,19 @@ class BookSourceRepository {
   ///
   /// 放行条件：
   ///   1. 启用 + 有 searchUrl
-  ///   2. 规则里的 JS 属于**子集可执行档**（`jsTier` 为 none / simple），
-  ///      或者没有 JS
-  /// `mid`（要 QuickJS）与 `hard`（要 Java 反射）仍然剔掉，但管理页能看到。
+  ///   2. `jsTier` 不是 hard —— `none` / `simple` 靠子集解释器，
+  ///      `mid` 靠 QuickJS 引擎（`RuleEngine.executeJsWithEngine` 会自己选路）
+  ///
+  /// `mid` 从 1.5.1 起放行：引擎只在真机上验证过能跑，而跑不动的源
+  /// 在搜索里只会「没结果」，不会让整次搜索失败（[MultiSourceSearch] 逐源 try）。
+  /// `hard` 仍剔掉 —— 它要 `Packages.javax.crypto`，两条路都做不到。
   List<PackedSource> get searchable {
     return _searchableCache ??= _all.where((p) {
       final s = p.source;
       if (!s.enabled || !s.canSearch) return false;
       return switch (s.jsTier) {
-        'mid' || 'hard' => false,
-        'simple' => true,
+        'hard' => false,
+        'mid' || 'simple' => true,
         'none' || '' => !_ruleHasJs(s.searchRule) &&
             !_ruleHasJs(s.tocRule) &&
             !_ruleHasJs(s.contentRule) &&
