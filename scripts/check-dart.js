@@ -55,12 +55,21 @@ function skeleton(source) {
       }
       continue;
     }
-    // 三引号字符串
+    // 三引号字符串（含 r''' / r""" 前缀，raw 里不认反斜杠转义）
     if ((ch === "'" || ch === '"') && next === ch && third === ch) {
       const quote = ch.repeat(3);
+      // raw 前缀：上一个字符是 r，且再前面不是标识符字符
+      let raw = false;
+      if (source[i - 1] === 'r') {
+        const before = i >= 2 ? source[i - 2] : '';
+        raw = before === '' || !/[A-Za-z0-9_$]/.test(before);
+      }
       i += 3;
       while (i < n && !source.startsWith(quote, i)) {
-        if (source[i] === '\\') i++;
+        if (!raw && source[i] === '\\') {
+          i += 2;
+          continue;
+        }
         i++;
       }
       i += 3;
