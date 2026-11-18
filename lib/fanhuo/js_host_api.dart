@@ -233,7 +233,11 @@ class JsHostApi {
     if (ms <= 0) return '';
     // 10 位秒 → 毫秒
     if (ms < 100000000000) ms *= 1000;
-    final time = DateTime.fromMillisecondsSinceEpoch(ms);
+    // CI 容器是 UTC，`DateTime.fromMillisecondsSinceEpoch` 会按本地时区算，
+    // 于是同一时间戳在 CI 和手机上差 8 小时。书源要的是**站点所在时区**，
+    // 这里固定用东八区（中文书源站全部在国内）。
+    final time = DateTime.fromMillisecondsSinceEpoch(ms, isUtc: true)
+        .add(const Duration(hours: 8));
     final p = pattern ?? 'yyyy/MM/dd HH:mm';
     return _format(time, p);
   }
