@@ -2,6 +2,56 @@
 
 本项目版本号遵循 `主.次.补`，`versionCode = 主*10000 + 次*100 + 补`。
 
+## [1.5.0] - 2026-11-18
+
+接真 JS 引擎（QuickJS），子集解释器跑不了的书源脚本有了第二道解法。
+
+### 新增 `js_host_api.dart`：书源脚本的宿主 API
+
+书源脚本里的 `java.ajax` / `base64Decode` / `md5` 这些**不是 JS 标准**，
+是「阅读」App 用 Rhino 塞进去的 Java 对象。换成 QuickJS 之后得自己实现：
+
+| API | 说明 | 用到它的源 |
+|---|---|---|
+| `java.ajax(url)` | 抓页面，复用书源的 fetch（含关证书/UA/GBK） | 186 |
+| `java.getUrl(url)` / `java.get(x)` | 同上；`java.get` 按参数是否以 `http` 开头区分 URL 与 KV key | 185 |
+| `java.post(url, body)` | POST | 6 |
+| `java.put` / `java.get(k)` / `java.getString(path)` | 线程内 KV + JSONPath 子集（`$.a.b[2].c`） | 149 + 93 |
+| `java.timeFormat(ts, pattern)` | 秒/毫秒时间戳格式化 | 55 |
+| `base64Decode` / `base64Encode` | | 39 |
+| `md5` / `md5Encode` / `md5Encode16` | | 23 |
+
+### 新增 `js_engine.dart`：引擎池 + 沙箱
+
+- **引擎池 2 实例**：QuickJS 建实例要几十毫秒，8 路并发搜索不能每次新建
+- **域名白名单** `HostAllowList`：只允许当前书源域名 + 书页域名（含子域与同根 CDN）
+- **单次执行 5 秒硬超时**：超时就废掉该实例重建（QuickJS 没法安全中断长脚本）
+- **单次最多 16 个网络请求**：防死循环刷站
+- **只注入胶水函数**：拿不到文件系统、拿不到 Android 反射、拿不到 Dart 对象
+
+### `RuleEngine.executeJsWithEngine`：三级回落
+
+```
+tier=simple → 子集解释器 →（认不出）→ QuickJS →（失败）→ null
+tier=mid    → 直接 QuickJS →（失败）→ null
+tier=hard   → 直接 null（要 Packages.javax.* ，做不到）
+```
+
+### 测试
+
+新增 `test/fanhuo/js_host_api_test.dart`，21 条用例：
+
+- 白名单：主域/子域/CDN 放行，异域与 `example.com.evil.test` 拒绝，非法 URL 不炸
+- `java.ajax`：白名单外**不发请求就抛**、请求数上限、抓取失败返回空串
+- KV 与 JSONPath：`$.a.b[2].c` 取值、路径不存在返回空
+- `base64` 往返、`md5` 已知值、`timeFormat` 秒/毫秒/空值
+- 三级回落：hard 不跑、simple 不碰引擎、mid 在无原生库环境返回 null
+
+### 数字
+
+可搜书源仍为 1408（引擎只对 `mid` 档生效，要让它们进搜索队列还需要按 `jsTier`
+放行 mid，那是 1.5.1 的事——先确认引擎在真机上跑得通）。
+
 ## [1.4.1] - 2026-11-18
 
 只有一件事：**配好 release 签名**，从这一版起才能真正覆盖升级。
