@@ -138,6 +138,26 @@ if (fs.existsSync(testSrc)) {
     fs.writeFileSync(file, text);
     log('pubspec.yaml 注入 assets/fanhuo/');
   }
+
+  // 书源 JS 需要真引擎（子集解释器跑不了的 373 个源靠它）
+  text = fs.readFileSync(file, 'utf8');
+  if (text.includes('flutter_js:')) {
+    log('pubspec.yaml 已含 flutter_js，跳过');
+  } else {
+    backup(rel);
+    const dep = /^(\s*)cupertino_icons:\s*\^[^\n]*\n/m;
+    const dm = dep.exec(text);
+    if (!dm) {
+      console.error('[apply-patches] pubspec.yaml 里找不到 cupertino_icons 行，锚点失效');
+      process.exit(1);
+    }
+    text = text.replace(
+      dep,
+      (whole) => `${whole}${dm[1]}flutter_js: ^0.8.7\n`,
+    );
+    fs.writeFileSync(file, text);
+    log('pubspec.yaml 注入 flutter_js: ^0.8.7');
+  }
 }
 
 /* ---------- 5. build.gradle.kts ---------- */
