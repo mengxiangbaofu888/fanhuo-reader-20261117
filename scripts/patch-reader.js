@@ -45,7 +45,12 @@ function patch(rel, anchors) {
   const file = must(rel);
   let text = fs.readFileSync(file, 'utf8');
   let changed = 0;
-  for (const { name, find, replace } of anchors) {
+  for (const { name, find, replace, skipIfPresent } of anchors) {
+    // 源文件已经改成新写法时就跳过（例如 fanhuo_home 里直接写了 SourceSearchPage）
+    if (skipIfPresent && text.includes(skipIfPresent)) {
+      log(`${rel}: ${name}（源文件已是新写法，跳过）`);
+      continue;
+    }
     if (text.includes(replace)) {
       log(`${rel}: ${name}（已应用，跳过）`);
       continue;
@@ -170,6 +175,8 @@ import 'fanqie_panel.dart';`,
   final Future<void> Function(Novel novel)? onOpenNovel;`,
   },
   {
+    // 源文件自 1.5.x 起直接写成 SourceSearchPage，这条只在旧底座上才需要打
+    skipIfPresent: 'SourceSearchPage(',
     name: '搜书卡片走书源搜索页（带上 onOpenNovel）',
     find: `                onTap: widget.onOpenSearch ??
                     () => Navigator.of(context).push(
