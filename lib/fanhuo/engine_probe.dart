@@ -35,20 +35,27 @@ class EngineProbeResult {
 ///
 /// 不联网（用一个假 fetch 注入固定页面），所以断网也能跑。
 /// 覆盖：正则 + 捕获组、字符串拼接、`result` 全局变量、
-/// `java.timeFormat`、`base64Decode`、`md5`。
+/// `java.timeFormat`、`base64Decode`、`md5`，以及**异步的 `java.ajax`**。
+///
+/// `java.ajax` 单独一行执行是故意的：`evaluateAsync` 只有脚本最外层表达式
+/// 是 Promise 时才会等它，所以把网络那一项放最后、单独一句。
 const _probeScript = r'''
-// 1) result 全局变量 + 正则捕获组
 var id = result.match(/\/(\d+)\/?$/)[1];
-// 2) 字符串拼接与算术
 var cover = 'https://img.example.com/' + parseInt(id / 1000) + '/' + id + 's.jpg';
-// 3) 宿主 API：时间格式化
 var stamp = java.timeFormat('1794963907');
-// 4) 宿主 API：base64 与 md5
 var decoded = base64Decode('5Lit5paH');
 var digest = md5('abc');
-// 5) 返回值拼在一起，让 Dart 侧逐项比对
-cover + '|' + stamp + '|' + decoded + '|' + digest;
+var fixed = [cover, stamp, decoded, digest].join('|');
+fixed;
 ''';
+
+/// 异步那一项：自检用假 fetch，返回固定串。
+const _probeAsyncScript = r'''
+java.ajax(baseUrl + '/probe').then(function (t) { return t; });
+''';
+
+/// 假 fetch 的固定返回，用于验证异步桥。
+const _probeFetchBody = 'AJAX_OK';
 
 /// 期望结果。脚本或宿主 API 任何一环坏了都会对不上。
 final _expected =
@@ -58,55 +65,70 @@ final _expected =
     '|900150983cd24fb0d6963f7d28e17f72';
 
 /// 跑一次自检。
-Future<EngineProbeResult> runEngineProbe({
-  SourceFetcher? fetch,
-  Duration timeout = const Duration(seconds: 8),
-}) async {
-  final started = DateTime.now();
-  final fakeFetch = fetch ??
-      (request, {String? header}) async => '<div id="content">自检</div>';
-  try {
-    final actual = await jsEnginePool
-        .run(
-          _probeScript,
-          context: JsRuntimeContext(
-            fetch: fakeFetch,
-            allowList: HostAllowList(['example.com']),
-            result: 'https://example.com/book/12345/',
-          ),
-          globals: {
-            'result': 'https://example.com/book/12345/',
-            'baseUrl': 'https://example.com',
-            'key': '',
-          },
-        )
-        .timeout(timeout);
-    final elapsed = DateTime.now().difference(started);
-    final trimmed = actual.trim();
-    if (trimmed == _expected) {
+  ///
+  /// 两段：
+  ///   1. 同步部分（正则/字符串/时间/base64/md5）—— 拼成一个串整体比对
+  ///   2. 异步部分（`java.ajax` 返回 Promise）—— 单独比对，验证 Promise 桥
+  Future<EngineProbeResult> runEngineProbe({
+    SourceFetcher? fetch,
+    Duration timeout = const Duration(seconds: 8),
+  }) async {
+    final started = DateTime.now();
+    final fakeFetch =
+        fetch ?? (request, {String? header}) async => _probeFetchBody;
+    JsRuntimeContext context() => JsRuntimeContext(
+          fetch: fakeFetch,
+          allowList: HostAllowList(['example.com']),
+          result: 'https://example.com/book/12345/',
+        );
+    const globals = {
+      'result': 'https://example.com/book/12345/',
+      'baseUrl': 'https://example.com',
+      'key': '',
+    };
+    try {
+      final actual = await jsEnginePool
+          .run(_probeScript, context: context(), globals: globals)
+          .timeout(timeout);
+      final trimmed = actual.trim();
+      if (trimmed != _expected) {
+        return EngineProbeResult(
+          EngineProbeStatus.assertionFailed,
+          '同步部分不对\n期望 $_expected\n实际 $trimmed',
+          elapsed: DateTime.now().difference(started),
+        );
+      }
+
+      // 异步桥：脚本最外层是一个 Promise，evaluateAsync 应当等它
+      final asyncActual = await jsEnginePool
+          .run(_probeAsyncScript, context: context(), globals: globals)
+          .timeout(timeout);
+      final asyncTrimmed = asyncActual.trim();
+      final elapsed = DateTime.now().difference(started);
+      if (asyncTrimmed != _probeFetchBody) {
+        return EngineProbeResult(
+          EngineProbeStatus.assertionFailed,
+          '异步桥不对（java.ajax 应当返回 $_probeFetchBody，实际 $asyncTrimmed）',
+          elapsed: elapsed,
+        );
+      }
       return EngineProbeResult(
         EngineProbeStatus.ok,
-        '全部通过（$elapsed）',
+        '同步 4 项 + 异步 1 项全过（$elapsed）',
         elapsed: elapsed,
       );
-    }
-    return EngineProbeResult(
-      EngineProbeStatus.assertionFailed,
-      '期望 $_expected\n实际 $trimmed',
-      elapsed: elapsed,
-    );
-  } on JsEngineFailure catch (error) {
-    // 「不可用」和「跑挂了」要分开报：前者是平台/依赖问题，后者是脚本问题
-    final unavailable = error.message.contains('不可用');
-    return EngineProbeResult(
-      unavailable
-          ? EngineProbeStatus.engineUnavailable
-          : EngineProbeStatus.scriptFailed,
-      error.message,
-      elapsed: DateTime.now().difference(started),
-    );
-  } catch (error) {
-    return EngineProbeResult(
+    } on JsEngineFailure catch (error) {
+      // 「不可用」和「跑挂了」要分开报：前者是平台/依赖问题，后者是脚本问题
+      final unavailable = error.message.contains('不可用');
+      return EngineProbeResult(
+        unavailable
+            ? EngineProbeStatus.engineUnavailable
+            : EngineProbeStatus.scriptFailed,
+        error.message,
+        elapsed: DateTime.now().difference(started),
+      );
+    } catch (error) {
+      return EngineProbeResult(
       EngineProbeStatus.scriptFailed,
       '$error',
       elapsed: DateTime.now().difference(started),
