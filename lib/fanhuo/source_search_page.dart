@@ -387,7 +387,7 @@ class _SourceSearchPageState extends State<SourceSearchPage> {
       final novel = await repository.bind(packed, hit);
       final added = await repository.addToShelf(novel.id);
       _toast(added ? '已加入书架：${hit.name}' : '《${hit.name}》已在书架里');
-      onShelfChanged?.call();
+      widget.onShelfChanged?.call();
     } catch (error) {
       _toast('加入书架失败：$error');
     } finally {

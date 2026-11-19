@@ -38,7 +38,7 @@ import 'source_repository.dart';
 
 /// 书源书 → 上游 Novel 的映射表。
 class FanhuoBookBinding {
-  const FanhuoBookBinding({
+  FanhuoBookBinding({
     required this.novelId,
     required this.title,
     required this.author,
@@ -154,12 +154,20 @@ class FanhuoSourceRepository extends NovelRepository {
     }
     _shelf
       ..clear()
-      ..addAll(prefs.getIntList(_shelfKey) ?? const []);
+      ..addAll(
+        // SharedPreferences 只有 getStringList / setStringList
+        (prefs.getStringList(_shelfKey) ?? const [])
+            .map(int.tryParse)
+            .whereType<int>(),
+      );
   }
 
   Future<void> _persistShelf() async {
     final prefs = _preferences ??= await SharedPreferences.getInstance();
-    await prefs.setIntList(_shelfKey, _shelf.toList(growable: false));
+    await prefs.setStringList(
+      _shelfKey,
+      [for (final id in _shelf) '$id'],
+    );
   }
 
   /// 是否已在书架。
@@ -432,7 +440,7 @@ class FanhuoSourceRepository extends NovelRepository {
     if (explicit != null && explicit.trim().isNotEmpty) {
       try {
         final picked = RuleEngine.pick(document, explicit, base: base);
-        if (picked != null && picked.trim().isNotEmpty) {
+        if (picked.isNotEmpty) {
           return _absolute(picked.trim(), base);
         }
       } catch (_) {
