@@ -53,19 +53,28 @@ function patch(rel, anchors) {
   let text = fs.readFileSync(file, 'utf8');
   let changed = 0;
   for (const { name, find, replace, id } of anchors) {
-    // 幂等标记：凡是「插入型」改动，replace 里都带一个独有 token（id 或名字本身），
-    // 已经在文件里就跳过；「替换型」改动则看 find 是否还在。
-    const marker = id || find.slice(0, 40);
-    const already = text.includes(replace.slice(0, Math.min(replace.length, 120)));
-    if (already && text.includes(marker) && !text.includes(find)) {
+    // 幂等判断分两类，不能混：
+    //
+    // 1) **替换型**（replace 里不含 find）：锚点被换掉了 → 文件里找不到 find
+    //    → 已经应用过。
+    // 2) **插入型**（replace 以 find 开头，在其后追加内容）：锚点还在，
+    //    但 replace 的尾部（追加的那段）也在 → 已经应用过。
+    //
+    // ⚠️ 1.9.x 的写法是「看 replace 前 120 字符」，插入型改动里前 120 字符
+    // 就是 find 本身，永远命中，于是每跑一次就多插一份 —— `start()` 被插了
+    // 40 遍就是这么来的。
+    const isInsert = replace.includes(find);
+    if (isInsert) {
+      const tail = replace.substring(replace.indexOf(find) + find.length).trim();
+      if (tail.length > 0 && text.includes(tail)) {
+        log(`${rel}: ${name}（已应用，跳过）`);
+        continue;
+      }
+    } else if (!text.includes(find)) {
       log(`${rel}: ${name}（已应用，跳过）`);
       continue;
     }
     if (!text.includes(find)) {
-      if (already) {
-        log(`${rel}: ${name}（已应用，跳过）`);
-        continue;
-      }
       fail(`${rel}: 锚点失效 —— ${name}`, `找不到：${find.slice(0, 90).replace(/\n/g, '\\n')}`);
     }
     text = text.replace(find, replace);
@@ -255,7 +264,16 @@ import 'fanhuo/source_bootstrap.dart';`,
                 return const SizedBox.shrink();
               }
               // 书源运行时：读设置、后台解 11.5 MB 书源包。不阻塞首帧。
-              FanhuoSourceBootstrap.instance.start();`,
+              FanhuoSourceBootstrap.instance.start();
+              // 把上游书架交给书源运行时 —— 详情页的「收藏」写的是它，
+              // 不注入的话点收藏毫无反应（书源书是负数 id，两套数据不互通）。
+              FanhuoSourceBootstrap.instance.attachLibrary(state);`,
+  },
+  {
+    name: 'pages.dart 导入 source_bootstrap（attachLibrary 需要）',
+    find: `import 'fanhuo/home_tab.dart';`,
+    replace: `import 'fanhuo/home_tab.dart';
+import 'fanhuo/source_bootstrap.dart';`,
   },
   {
     name: 'home: 外面包 HomeHealthBanner（整段替换）',

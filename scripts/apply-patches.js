@@ -214,7 +214,22 @@ if (fs.existsSync(testSrc)) {
   }
 }
 
-/* ---------- 6. 导航挂载（挂法 2 + 挂法 3） ---------- */
+/* ---------- 6. 负数 id 放行（书源书） ---------- */
+{
+  log('开始放行负数 id（scripts/patch-negative-ids.js）');
+  try {
+    execFileSync(
+      process.execPath,
+      [path.join(ROOT, 'scripts', 'patch-negative-ids.js')],
+      { cwd: ROOT, stdio: 'inherit', env: { ...process.env, WENKU_BASE: BASE } },
+    );
+  } catch {
+    console.error('[apply-patches] 负数 id 补丁失败');
+    process.exit(1);
+  }
+}
+
+/* ---------- 7. 导航挂载（挂法 2 + 挂法 3） ---------- */
 {
   log('开始挂导航（scripts/patch-navigation.js）');
   try {

@@ -2,6 +2,63 @@
 
 本项目版本号遵循 `主.次.补`，`versionCode = 主*10000 + 次*100 + 补`。
 
+## [2.0.0] - 2026-11-19
+
+**书源书终于能进书架了。** 这是一次跨版本的大修：上游有 10 处
+`id <= 0` 的守卫，把书源书全部挡在门外。
+
+### 一、点「收藏」毫无反应的真因：上游 10 处负数 id 守卫
+
+`: -930262845`、`: -946874206` —— 书源书的 id 全是负数（`-900000000` 起）。
+底座的 `LibraryState` / `OfflineCacheStore` 到处写着：
+
+```dart
+if (id <= 0) return;        // setShelfMembership
+if (id <= 0) throw ...;     // saveBook
+```
+
+这些守卫是「本地书与上游书都是正数」年代的产物，**书源书撞了 10 次**：
+
+| 位置 | 后果 |
+|---|---|
+| `setShelfMembership` | 点收藏 → 直接 return → **毫无反应** |
+| `saveBook` | 目录/正文缓存不落地 → 每次都重抓 |
+| `rememberProgress` | 阅读进度不记 |
+| `readBook` | 离线缓存读不回来 |
+
+新增 `scripts/patch-negative-ids.js`，把这些守卫从 `id <= 0` 改成 `id == 0`
+（0 才是真正的无效 id），**并跳过 `cid`（章节序号从 1 起，那个守卫是对的）**。
+
+本地书 id 区间是 `0x60000000`（正数），书源书是负数，两者不冲突。
+
+### 二、两套书架打通
+
+上游详情页的「收藏」写的是 `LibraryState`，我的「我的书源书架」读的是
+`fanhuo.shelf.v1` —— 两套互不相通，所以点了没用。
+
+现在：
+
+- `FanhuoSourceBootstrap.attachLibrary(state)` 在首帧把上游书架注入运行时
+- `addToShelf` / `removeFromShelf` 同时写两边
+- 启动时把上游书架里已有的负数 id 书补回我的表（迁移旧数据）
+
+`patch-navigation.js` 的幂等判断也修了 —— 原来用「replace 前 120 字符」
+判断，插入型改动的前 120 字符就是锚点本身，永远命中，导致 `start()`
+被插了 **40 遍**。现在按「replace 去掉 find 之后的尾段」判断，连跑三次确认只有 1 份。
+
+### 三、详情页加载失败：给目录加缓存
+
+`DetailLoaderPage._load()` 每次都调 `chapters()` 现抓目录。站点一慢就整页失败，
+而日志显示同样的书第一次抓目录是成功的（1572 章）。
+
+- `OfflineCacheStore.readBook` 放行负数 id（原来也被守卫挡住）
+- `FanhuoSourceRepository.cachedChapters(id)` 提供「不联网的目录快照」
+
+### 待办（2.1.0）
+
+- UI 照文庫的书架/书脊视觉效果重做发现页与书架
+- 详情页失败时先用缓存目录顶上，再后台重抓
+
 ## [1.9.4] - 2026-11-19
 
 用户从日志包和截图看出两个真 bug。

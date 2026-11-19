@@ -34,6 +34,7 @@ import 'app_log.dart';
 import 'book_source.dart';
 import 'multi_source_search.dart';
 import 'rule_engine.dart';
+import 'source_bootstrap.dart';
 import 'source_repository.dart';
 
 /// 书源书 → 上游 Novel 的映射表。
@@ -183,20 +184,44 @@ class FanhuoSourceRepository extends NovelRepository {
   }
 
   /// 加入书架。返回 false 表示本来就在。
+  ///
+  /// 同时写进上游 `LibraryState` —— 详情页的收藏按钮读的是那套，
+  /// 两边不同步就会出现「加了书架但详情页显示未收藏」或反过来。
   Future<bool> addToShelf(int novelId) async {
     await _ensureLoaded();
-    if (!_bindings.containsKey(novelId)) return false;
-    if (!_shelf.add(novelId)) return false;
-    await _persistShelf();
-    return true;
+    final binding = _bindings[novelId];
+    if (binding == null) return false;
+    final added = _shelf.add(novelId);
+    if (added) await _persistShelf();
+    await _writeUpstreamShelf(novelId, true, toNovel(binding));
+    return added;
   }
 
   /// 移出书架。
   Future<bool> removeFromShelf(int novelId) async {
     await _ensureLoaded();
-    if (!_shelf.remove(novelId)) return false;
-    await _persistShelf();
-    return true;
+    final removed = _shelf.remove(novelId);
+    if (removed) await _persistShelf();
+    await _writeUpstreamShelf(novelId, false, null);
+    return removed;
+  }
+
+  /// 同步写上游书架。失败只记日志，不影响本地的收藏结果。
+  Future<void> _writeUpstreamShelf(
+    int novelId,
+    bool present,
+    Novel? novel,
+  ) async {
+    final state = FanhuoSourceBootstrap.instance.libraryState;
+    if (state == null) return;
+    try {
+      await state.setShelfMembership(novelId, present, novel: novel);
+    } catch (error) {
+      AppLog.warn('bookSource', '写上游书架失败', fields: {
+        'id': novelId,
+        'present': present,
+      }, error: error);
+    }
   }
 
   Future<void> _persist() async {
@@ -405,6 +430,25 @@ class FanhuoSourceRepository extends NovelRepository {
       // 缓存失败不影响阅读
     }
     return chapters;
+  }
+
+  /// 从离线缓存读目录（不联网）。
+  ///
+  /// 详情页每次重进都会重新抓目录，站点一慢就「加载失败」。
+  /// 有缓存时先给用户看缓存的目录，别再让页面空着。
+  Future<List<NovelChapter>?> cachedChapters(int id) async {
+    await _ensureLoaded();
+    final memo = _chapterMemo[id];
+    if (memo != null && memo.isNotEmpty) return memo;
+    try {
+      final saved = cache.book(id);
+      final list = saved?.novel.chapters;
+      if (list != null && list.isNotEmpty) {
+        // 缓存里没有章节 URL，正文还得现抓，所以这里只喂 UI
+        return list;
+      }
+    } catch (_) {}
+    return null;
   }
 
   /// 目录页：优先 `ruleBookInfo.tocUrl`，退到书页本身。

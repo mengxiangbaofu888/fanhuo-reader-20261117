@@ -17,6 +17,7 @@ import 'package:flutter/services.dart' show AssetManifest, rootBundle;
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../library_state.dart';
 import '../offline_cache.dart';
 import 'app_log.dart';
 import 'book_source.dart';
@@ -50,6 +51,46 @@ class FanhuoSourceBootstrap extends ChangeNotifier {
 
   bool _started = false;
   final Set<String> _disabled = <String>{};
+
+  /// 上游的书架状态。由 `HomeShell` 在首帧注入。
+  ///
+  /// 为什么需要它：详情页右上角的「收藏」写的是上游 `LibraryState`，
+  /// 而我自己的 `SourceShelfPage` 读的是 `fanhuo.shelf.v1` —— 两套互不相通，
+  /// 于是「点收藏毫无反应」。拿到这个引用后，两边任一变化都会同步。
+  LibraryState? _libraryState;
+  LibraryState? get libraryState => _libraryState;
+
+  /// 由上游调用，注入书架状态（只会调一次，重复调用覆盖）。
+  void attachLibrary(LibraryState state) {
+    _libraryState = state;
+    AppLog.info('bookSource', '已挂接上游书架', fields: {
+      'shelfSize': state.shelf.length,
+    });
+    // 上游书架里已有的书源书，补回我的收藏表（迁移旧数据）
+    unawaited(_syncFromLibrary());
+  }
+
+  Future<void> _syncFromLibrary() async {
+    final state = _libraryState;
+    final repo = _novelRepository;
+    if (state == null || repo == null) return;
+    try {
+      final ids = state.shelf.where((id) => id < 0).toList();
+      if (ids.isEmpty) return;
+      var adopted = 0;
+      for (final id in ids) {
+        final novel = await repo.find(id);
+        if (novel == null) continue;
+        if (await repo.addToShelf(id)) adopted++;
+      }
+      if (adopted > 0) {
+        AppLog.info('bookSource', '从上游书架补回书源书',
+            fields: {'count': adopted});
+      }
+    } catch (error) {
+      AppLog.warn('bookSource', '同步上游书架失败', error: error);
+    }
+  }
 
   /// 启动：读设置 + 后台解书源包。重复调用无副作用。
   void start() {
