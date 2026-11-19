@@ -192,10 +192,35 @@ import 'fanhuo/source_bootstrap.dart';`,
       (_) => const ArchiveMasthead(title: '发现', code: '01 / SOURCE ARCHIVE'),`,
   },
   {
-    name: '导入 SourceExplorePage',
+    // 1.9.0：底部「书架」也换成书源书架。
+    // 底座 ShelfPage 读的是上游 NovelRepository 的书（本地书 + 它自己的），
+    // 书源书在另一个 id 空间（负数 -900000000 起），那个页面看不到。
+    name: '底部「书架」换成书源书架',
+    find: `    final shelf = ShelfPage(
+      books: const [],
+      state: widget.state,
+      repository: widget.repository,
+      showHeader: false,
+      onSearch: _openSearch,
+      navigation: _navigation,
+    );`,
+    replace: `    // 1.9.0：底座 ShelfPage 读的是上游书架，看不到书源书。
+    // 换成书源书架（数据存 fanhuo.shelf.v1）。
+    final shelf = SourceShelfPage(
+      onOpenNovel: _openFanhuoNovel,
+    );`,
+  },
+  {
+    name: '_headers 里 shelf 换成书源 masthead',
+    find: `      shelf.buildHeader,`,
+    replace: `      (_) => const ArchiveMasthead(title: '书架', code: '02 / SOURCE SHELF'),`,
+  },
+  {
+    name: '导入 SourceExplorePage 与 SourceShelfPage',
     find: `import 'fanhuo/home_tab.dart';`,
     replace: `import 'fanhuo/home_tab.dart';
-import 'fanhuo/source_explore_page.dart';`,
+import 'fanhuo/source_explore_page.dart';
+import 'fanhuo/source_shelf_page.dart';`,
   },
 ]);
 

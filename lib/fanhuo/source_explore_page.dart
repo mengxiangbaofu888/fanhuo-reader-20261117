@@ -1,38 +1,33 @@
-/// 书源发现页：用书源自带的分类规则，做出真正能用的「发现」。
+/// 发现页：一打开就有书，不是「先选书源再看书」。
 ///
-/// 为什么需要它：底座（文庫）的「发现」tab 连它自己的私有 `libcpp.so` 接口，
-/// 我们拿不到那个 so，那个页面永远「书籍加载失败」。而书源里有
-/// **1256 个源带 `exploreUrl`**，它们自带分类目录，完全不需要私有接口。
+/// 设计参照旷野书屋的精选页：
 ///
-/// `exploreUrl` 有三种形态，全部支持：
-///   1. **分栏文本**（684 个）：
-///      ```
-///      玄幻奇幻::/xuanhuanqihuan/list-1-{{page}}.html
-///      武侠修真::/wuxiaxiuzhen/list-2-{{page}}.html
-///      ```
-///   2. **JSON 数组**（572 个）：
-///      ```json
-///      [{"title":"都市人生","url":"http://.../classify?page={{page}}"}, ...]
-///      ```
-///   3. **纯 URL**（较少）：只有一个地址，当成唯一分类。
+///   榜单横排（人气 / 新书 / 完结）
+///   书卡横滑，带阅读数角标
+///   分类 tab（玄幻 / 科幻 / 都市 / 武侠 …）
+///   带简介的推荐卡
 ///
-/// 列表规则优先用 `ruleExplore`，没有就退回 `ruleSearch`
-/// （327/328 的分栏源都靠这个兜住，两者的列表结构通常一致）。
+/// 数据全部来自书源自带的 `exploreUrl`，**不碰上游那个私有 libcpp.so**。
+///
+/// 选源策略（用户确认的方案 3）：
+///   - **榜单** 优先用旷野书屋的源（133 个，结构规整、分类名统一）
+///   - **分类网格** 用全部带分类的源（1216 个），多源并发抓同一分类，
+///     24 个源里通常有几本能回
 library;
 
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:html/dom.dart' as dom;
 
 import '../catalog.dart';
-
 import 'app_log.dart';
 import 'book_source.dart';
 import 'fanqie_theme.dart';
 import 'multi_source_search.dart';
-import 'source_bootstrap.dart';
 import 'rule_engine.dart';
+import 'source_bootstrap.dart';
 
 /// 一个可点的分类。
 class ExploreCategory {
@@ -40,7 +35,7 @@ class ExploreCategory {
 
   final String title;
 
-  /// 已经展开 `{{page}}` 之前的模板，抓的时候替换页码。
+  /// 还带 `{{page}}` 占位符的地址模板。
   final String url;
 }
 
@@ -65,11 +60,11 @@ List<ExploreCategory> parseExploreCategories(String raw) {
         if (out.isNotEmpty) return out;
       }
     } catch (_) {
-      // 掉到下面的分栏解析
+      // 掉到分栏解析
     }
   }
 
-  // 形态 1：每行 `标题::地址`
+  // 形态 1：每行 `标题::地址`；形态 3：纯 URL
   final out = <ExploreCategory>[];
   for (final line in text.split('\n')) {
     final row = line.trim();
@@ -82,14 +77,57 @@ List<ExploreCategory> parseExploreCategories(String raw) {
         out.add(ExploreCategory(title: title, url: url));
       }
     } else if (row.startsWith('http')) {
-      // 形态 3：纯 URL
       out.add(ExploreCategory(title: '全部', url: row));
     }
   }
   return out;
 }
 
-/// 发现页。
+/// 归一化分类名：去掉装饰字符与常见后缀，方便跨源归并。
+String normalizeCategoryName(String name) {
+  var text = name;
+  // 去掉 emoji、装饰符号、空白
+  text = text.replaceAll(RegExp(r'[^\u4e00-\u9fa5A-Za-z0-9]'), '');
+  if (text.isEmpty) return '';
+  for (final suffix in ['小说', '类型', '频道', '分类']) {
+    if (text.length > 2 && text.endsWith(suffix)) {
+      text = text.substring(0, text.length - suffix.length);
+    }
+  }
+  return text;
+}
+
+/// 发现页的主分类（顺序即优先级）。
+const kFeaturedCategories = <String>[
+  '玄幻',
+  '科幻',
+  '都市',
+  '武侠',
+  '仙侠',
+  '历史',
+  '游戏',
+  '悬疑',
+  '言情',
+  '奇幻',
+  '穿越',
+  '灵异',
+];
+
+/// 榜单档位：标题 → 匹配关键词（分类名里含任意一个就算）。
+const kRankShelves = <String, List<String>>{
+  '人气榜': ['人气', '热门', '推荐', '收藏'],
+  '新书榜': ['新书', '最新', '更新'],
+  '完结榜': ['完本', '完结', '全本'],
+};
+
+/// 一个源 + 它的某个分类。
+class _SourceCategory {
+  const _SourceCategory(this.source, this.category, this.pack);
+  final BookSource source;
+  final ExploreCategory category;
+  final String pack;
+}
+
 class SourceExplorePage extends StatefulWidget {
   const SourceExplorePage({super.key, this.onOpenNovel});
 
@@ -100,266 +138,232 @@ class SourceExplorePage extends StatefulWidget {
 }
 
 class _SourceExplorePageState extends State<SourceExplorePage> {
-  List<BookSource> _explorable = const [];
-  String _keyword = '';
+  /// 全量「源 × 分类」入口（分类网格用）。
+  List<_SourceCategory> _all = const [];
+
+  /// 旷野源的那些入口（榜单用）。
+  List<_SourceCategory> _kuangye = const [];
+
+  bool _building = true;
+  String _activeCategory = kFeaturedCategories.first;
+
+  /// 每个分类抓到的书（key = 分类名，未归一化以免互相顶掉）。
+  final Map<String, List<SearchHit>> _cache = {};
+  final Set<String> _loading = {};
+  final Map<String, String> _errors = {};
+
+  int _ranking = 0;
+  List<SearchHit> _rankHits = const [];
+  bool _rankLoading = false;
+  String _rankError = '';
 
   @override
   void initState() {
     super.initState();
-    FanhuoSourceBootstrap.instance.addListener(_reload);
-    _reload();
+    FanhuoSourceBootstrap.instance.addListener(_rebuild);
+    _rebuild();
   }
 
   @override
   void dispose() {
-    FanhuoSourceBootstrap.instance.removeListener(_reload);
+    FanhuoSourceBootstrap.instance.removeListener(_rebuild);
     super.dispose();
   }
 
-  void _reload() {
+  void _rebuild() {
     final repo = FanhuoSourceBootstrap.instance.repository;
-    final list = repo.all
-        .where((p) => p.source.canExplore)
-        .map((p) => p.source)
-        .toList(growable: false);
+    final all = <_SourceCategory>[];
+    final kuangye = <_SourceCategory>[];
+    for (final packed in repo.all) {
+      final source = packed.source;
+      if (!source.canExplore) continue;
+      for (final cat in parseExploreCategories(source.exploreUrl ?? '')) {
+        final entry = _SourceCategory(source, cat, packed.pack.name);
+        all.add(entry);
+        if (packed.pack.name == 'kuangye') kuangye.add(entry);
+      }
+    }
     if (!mounted) {
-      _explorable = list;
+      _all = all;
+      _kuangye = kuangye;
       return;
     }
-    setState(() => _explorable = list);
+    setState(() {
+      _all = all;
+      _kuangye = kuangye;
+      _building = false;
+    });
+    AppLog.info(
+      'explore',
+      '发现页就绪：${all.length} 个「源×分类」，其中旷野 ${kuangye.length} 个',
+    );
+    _loadRanking();
+    _loadCategory(_activeCategory);
   }
 
-  List<BookSource> get _filtered {
-    final key = _keyword.trim().toLowerCase();
-    if (key.isEmpty) return _explorable;
-    return _explorable
-        .where((s) =>
-            s.name.toLowerCase().contains(key) ||
-            s.group.toLowerCase().contains(key))
+  /// 某个分类名下的所有入口。
+  List<_SourceCategory> _entriesFor(String category, {bool kgOnly = false}) {
+    final pool = kgOnly ? _kuangye : _all;
+    final key = normalizeCategoryName(category);
+    return pool
+        .where((e) => normalizeCategoryName(e.category.title) == key)
         .toList(growable: false);
   }
 
-  @override
-  Widget build(BuildContext context) {
-    const paper = FanqiePaper.yellow;
-    final theme = fanqieReaderTheme(
-      ThemeData(brightness: Brightness.light),
-      paper,
-      font: FanqieFontScale.medium,
-      line: FanqieLineSpacing.normal,
-      paragraph: FanqieParagraphSpacing.normal,
-    );
-    final list = _filtered;
-    return Theme(
-      data: theme,
-      child: Scaffold(
-        backgroundColor: paper.background,
-        appBar: AppBar(
-          title: const Text('发现'),
-          backgroundColor: paper.background,
-          foregroundColor: paper.ink,
-          elevation: 0,
-        ),
-        body: Column(
-          children: [
-            Container(
-              width: double.infinity,
-              color: paper.raised(0.05),
-              padding: const EdgeInsets.fromLTRB(16, 10, 16, 10),
-              child: Text(
-                '${_explorable.length} 个书源带分类目录。'
-                '点进去看分类，再点分类抓书单。',
-                style: TextStyle(fontSize: 12, color: paper.raised(0.6)),
-              ),
-            ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
-              child: TextField(
-                onChanged: (v) => setState(() => _keyword = v),
-                style: TextStyle(color: paper.ink),
-                decoration: InputDecoration(
-                  hintText: '按书源名 / 分组筛',
-                  hintStyle: TextStyle(color: paper.raised(0.45)),
-                  isDense: true,
-                  filled: true,
-                  fillColor: paper.raised(0.06),
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(20),
-                    borderSide: BorderSide.none,
-                  ),
-                  contentPadding:
-                      const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                ),
-              ),
-            ),
-            Expanded(
-              child: list.isEmpty
-                  ? Center(
-                      child: Text(
-                        _explorable.isEmpty
-                            ? '没有书源带分类目录'
-                            : '没有匹配的书源',
-                        style: TextStyle(color: paper.raised(0.55)),
-                      ),
-                    )
-                  : ListView.separated(
-                      itemCount: list.length,
-                      separatorBuilder: (context, index) =>
-                          Divider(height: 1, color: paper.raised(0.12)),
-                      itemBuilder: (context, i) => _sourceRow(list[i], paper),
-                    ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
+  // ───────── 榜单 ─────────
 
-  Widget _sourceRow(BookSource source, FanqiePaper paper) {
-    final cats = parseExploreCategories(source.exploreUrl ?? '');
-    return ListTile(
-      title: Text(
-        source.name,
-        style: TextStyle(color: paper.ink, fontWeight: FontWeight.w600),
-      ),
-      subtitle: Text(
-        [
-          if (source.group.isNotEmpty) source.group,
-          '${cats.length} 个分类',
-        ].join(' · '),
-        style: TextStyle(fontSize: 12, color: paper.raised(0.5)),
-      ),
-      trailing: Icon(Icons.chevron_right, color: paper.raised(0.4)),
-      onTap: () => Navigator.of(context).push(
-        MaterialPageRoute<void>(
-          builder: (_) => SourceCategoryPage(
-            source: source,
-            categories: cats,
-            onOpenNovel: widget.onOpenNovel,
-          ),
-        ),
-      ),
-    );
-  }
-}
+  Future<void> _loadRanking() async {
+    final titles = kRankShelves.keys.toList();
+    if (_ranking >= titles.length) _ranking = 0;
+    final title = titles[_ranking];
+    final keywords = kRankShelves[title]!;
 
-/// 某个书源的分类页 + 抓到的书单。
-class SourceCategoryPage extends StatefulWidget {
-  const SourceCategoryPage({
-    super.key,
-    required this.source,
-    required this.categories,
-    this.onOpenNovel,
-  });
-
-  final BookSource source;
-  final List<ExploreCategory> categories;
-  final Future<void> Function(Novel novel)? onOpenNovel;
-
-  @override
-  State<SourceCategoryPage> createState() => _SourceCategoryPageState();
-}
-
-class _SourceCategoryPageState extends State<SourceCategoryPage> {
-  ExploreCategory? _active;
-  List<SearchHit> _hits = const [];
-  bool _loading = false;
-  String _error = '';
-  int _page = 1;
-
-  @override
-  void initState() {
-    super.initState();
-    if (widget.categories.isNotEmpty) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        _selectCategory(widget.categories.first);
-      });
+    var entries = <_SourceCategory>[
+      for (final kw in keywords)
+        ..._kuangye.where((e) => e.category.title.contains(kw)),
+    ];
+    if (entries.isEmpty) {
+      entries = [
+        for (final kw in keywords)
+          ..._all.where((e) => e.category.title.contains(kw)),
+      ];
     }
-  }
-
-  Future<void> _selectCategory(ExploreCategory category) async {
-    setState(() {
-      _active = category;
-      _loading = true;
-      _error = '';
-      _hits = const [];
-      _page = 1;
-    });
-    await _fetch();
-  }
-
-  Future<void> _fetch() async {
-    final active = _active;
-    if (active == null) return;
-    final bootstrap = FanhuoSourceBootstrap.instance;
-    final source = widget.source;
-    try {
-      // 分类地址可能是相对路径（`/xuanhuan/list-1-{{page}}.html`），
-      // 先补成绝对地址，再展开页码占位符。
-      final raw = _absolute(
-        RuleEngine.fillTemplate(active.url, key: '', page: _page),
-        source.url,
-      );
-      final request = SearchRequest(url: raw);
-      final body = await bootstrap.fetch(request, header: source.header);
-      final document = RuleEngine.parseHtml(body);
-
-      // 列表规则：优先 ruleExplore，没有就退回 ruleSearch
-      final exploreList = source.exploreRule['bookList'] ?? '';
-      final searchList = source.searchRule['bookList'] ?? '';
-      final rule = exploreList.isNotEmpty
-          ? source.exploreRule
-          : (searchList.isNotEmpty ? source.searchRule : source.exploreRule);
-      final listRule = rule['bookList'];
-      if (listRule == null || listRule.isEmpty) {
+    if (entries.isEmpty) {
+      if (mounted) {
         setState(() {
-          _loading = false;
-          _error = '这个书源没有列表规则（ruleExplore.bookList 为空，'
-              'ruleSearch.bookList 也为空）';
+          _rankLoading = false;
+          _rankHits = const [];
+          _rankError = '没有源提供「$title」';
         });
-        return;
       }
-
-      final nodes = RuleEngine.selectNodes(document, listRule);
-      final hits = <SearchHit>[];
-      for (final node in nodes) {
-        final name = _pick(node, document, rule, 'name', raw);
-        final bookUrl = _pick(node, document, rule, 'bookUrl', raw);
-        if (name == null || bookUrl == null) continue;
-        hits.add(
-          SearchHit(
-            name: name,
-            bookUrl: _absolute(bookUrl, raw),
-            sourceName: source.name,
-            sourceUrl: source.url,
-            costMs: 0,
-            author: _pick(node, document, rule, 'author', raw),
-            coverUrl: _pick(node, document, rule, 'coverUrl', raw),
-            intro: _pick(node, document, rule, 'intro', raw),
-            kind: _pick(node, document, rule, 'kind', raw),
-            lastChapter: _pick(node, document, rule, 'lastChapter', raw),
-          ),
-        );
-      }
-      AppLog.info(
-        'explore',
-        '${source.name} / ${active.title} 第 $_page 页：'
-        '${nodes.length} 节点 → ${hits.length} 本',
-      );
-      if (!mounted) return;
+      return;
+    }
+    if (mounted) {
       setState(() {
-        _loading = false;
-        _hits = hits;
-        _error = hits.isEmpty ? '这一页没抓到书（规则可能失效，或该分类为空）' : '';
-      });
-    } catch (error) {
-      AppLog.warn('explore', '${source.name} / ${active.title} 失败：$error');
-      if (!mounted) return;
-      setState(() {
-        _loading = false;
-        _error = '抓取失败：$error';
+        _rankLoading = true;
+        _rankError = '';
       });
     }
+    final hits = await _fetchFromEntries(entries, limit: 10);
+    if (!mounted) return;
+    setState(() {
+      _rankHits = hits;
+      _rankLoading = false;
+      _rankError = hits.isEmpty ? '「$title」这次没抓到书' : '';
+    });
+  }
+
+  // ───────── 分类网格 ─────────
+
+  Future<void> _loadCategory(String category) async {
+    setState(() => _activeCategory = category);
+    if (_cache.containsKey(category) || _loading.contains(category)) return;
+    final entries = _entriesFor(category);
+    if (entries.isEmpty) {
+      setState(() => _errors[category] = '没有源提供「$category」分类');
+      return;
+    }
+    setState(() {
+      _loading.add(category);
+      _errors.remove(category);
+    });
+    final hits = await _fetchFromEntries(entries, limit: 24);
+    if (!mounted) return;
+    setState(() {
+      _loading.remove(category);
+      _cache[category] = hits;
+      if (hits.isEmpty) _errors[category] = '「$category」这些源都没抓到书';
+    });
+  }
+
+  /// 并发问多个源，边回边攒。
+  ///
+  /// 一个分类可能有几百个源，全问要几分钟；取前 [limit] 个已经够出几十本。
+  Future<List<SearchHit>> _fetchFromEntries(
+    List<_SourceCategory> entries, {
+    int limit = 24,
+    int concurrency = 8,
+  }) async {
+    final queue = <_SourceCategory>[];
+    final seen = <String>{};
+    for (final e in entries) {
+      if (seen.add('${e.source.url}|${e.category.url}')) queue.add(e);
+      if (queue.length >= limit) break;
+    }
+
+    final out = <SearchHit>[];
+    final seenBooks = <String>{};
+    var cursor = 0;
+
+    Future<void> lane() async {
+      while (true) {
+        final index = cursor++;
+        if (index >= queue.length) return;
+        final entry = queue[index];
+        try {
+          final hits = await _fetchOne(entry);
+          for (final hit in hits) {
+            if (seenBooks.add(hit.bookUrl)) out.add(hit);
+          }
+        } catch (error) {
+          AppLog.debug(
+              'explore', '${entry.source.name} ${entry.category.title}：$error');
+        }
+      }
+    }
+
+    final lanes = <Future<void>>[
+      for (var i = 0; i < concurrency && i < queue.length; i++) lane(),
+    ];
+    await Future.wait(lanes).timeout(
+      const Duration(seconds: 25),
+      onTimeout: () => const <void>[],
+    );
+    return out;
+  }
+
+  Future<List<SearchHit>> _fetchOne(_SourceCategory entry) async {
+    final source = entry.source;
+    final bootstrap = FanhuoSourceBootstrap.instance;
+    final url = _absolute(
+      RuleEngine.fillTemplate(entry.category.url, key: '', page: 1),
+      source.url,
+    );
+    final body = await bootstrap
+        .fetch(SearchRequest(url: url), header: source.header)
+        .timeout(const Duration(seconds: 6));
+    final document = RuleEngine.parseHtml(body);
+
+    final exploreList = source.exploreRule['bookList'] ?? '';
+    final searchList = source.searchRule['bookList'] ?? '';
+    final rule = exploreList.isNotEmpty
+        ? source.exploreRule
+        : (searchList.isNotEmpty ? source.searchRule : source.exploreRule);
+    final listRule = rule['bookList'];
+    if (listRule == null || listRule.isEmpty) return const [];
+
+    final nodes = RuleEngine.selectNodes(document, listRule);
+    final hits = <SearchHit>[];
+    for (final node in nodes.take(20)) {
+      final name = _pick(node, document, rule, 'name', url);
+      final bookUrl = _pick(node, document, rule, 'bookUrl', url);
+      if (name == null || bookUrl == null) continue;
+      hits.add(
+        SearchHit(
+          name: name,
+          bookUrl: _absolute(bookUrl, url),
+          sourceName: source.name,
+          sourceUrl: source.url,
+          costMs: 0,
+          author: _pick(node, document, rule, 'author', url),
+          coverUrl: _pick(node, document, rule, 'coverUrl', url),
+          intro: _pick(node, document, rule, 'intro', url),
+          kind: _pick(node, document, rule, 'kind', url),
+          lastChapter: _pick(node, document, rule, 'lastChapter', url),
+        ),
+      );
+    }
+    return hits;
   }
 
   String? _pick(
@@ -392,6 +396,8 @@ class _SourceCategoryPageState extends State<SourceCategoryPage> {
     }
   }
 
+  // ───────── 界面 ─────────
+
   @override
   Widget build(BuildContext context) {
     const paper = FanqiePaper.yellow;
@@ -406,102 +412,374 @@ class _SourceCategoryPageState extends State<SourceCategoryPage> {
       data: theme,
       child: Scaffold(
         backgroundColor: paper.background,
-        appBar: AppBar(
-          title: Text(widget.source.name),
-          backgroundColor: paper.background,
-          foregroundColor: paper.ink,
-          elevation: 0,
+        body: SafeArea(
+          child: _building
+              ? const Center(child: CircularProgressIndicator())
+              : ListView(
+                  padding: const EdgeInsets.only(bottom: 24),
+                  children: [
+                    _masthead(paper),
+                    _rankTabs(paper),
+                    _rankRow(paper),
+                    _categoryTabs(paper),
+                    _grid(paper),
+                  ],
+                ),
         ),
-        body: Column(
+      ),
+    );
+  }
+
+  Widget _masthead(FanqiePaper paper) => Padding(
+        padding: const EdgeInsets.fromLTRB(20, 20, 20, 4),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            if (widget.categories.isNotEmpty)
-              SizedBox(
-                height: 48,
-                child: ListView(
-                  scrollDirection: Axis.horizontal,
-                  padding: const EdgeInsets.symmetric(horizontal: 12),
-                  children: [
-                    for (final c in widget.categories)
-                      Padding(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 4, vertical: 8),
-                        child: ChoiceChip(
-                          label: Text(c.title,
-                              style: const TextStyle(fontSize: 12)),
-                          selected: _active?.title == c.title,
-                          onSelected: (_) => _selectCategory(c),
-                        ),
+            Text(
+              '发现',
+              style: TextStyle(
+                fontSize: 30,
+                fontWeight: FontWeight.w800,
+                letterSpacing: -0.5,
+                color: paper.ink,
+              ),
+            ),
+            const SizedBox(height: 2),
+            Text(
+              '${_all.length} 个「源 × 分类」入口 · 直连站点，不走上游接口',
+              style: TextStyle(fontSize: 11, color: paper.raised(0.45)),
+            ),
+          ],
+        ),
+      );
+
+  Widget _rankTabs(FanqiePaper paper) {
+    final titles = kRankShelves.keys.toList();
+    return SizedBox(
+      height: 48,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.symmetric(horizontal: 16),
+        itemCount: titles.length,
+        separatorBuilder: (_, __) => const SizedBox(width: 22),
+        itemBuilder: (context, i) {
+          final active = i == _ranking;
+          return GestureDetector(
+            onTap: () {
+              setState(() {
+                _ranking = i;
+                _rankHits = const [];
+              });
+              _loadRanking();
+            },
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Text(
+                  titles[i],
+                  style: TextStyle(
+                    fontSize: 17,
+                    fontWeight: active ? FontWeight.w800 : FontWeight.w500,
+                    color: active ? paper.ink : paper.raised(0.45),
+                  ),
+                ),
+                const SizedBox(height: 3),
+                Container(
+                  width: active ? 18 : 0,
+                  height: 3,
+                  decoration: BoxDecoration(
+                    color: paper.ink,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+              ],
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _rankRow(FanqiePaper paper) {
+    if (_rankLoading) {
+      return const SizedBox(
+        height: 214,
+        child: Center(child: CircularProgressIndicator()),
+      );
+    }
+    if (_rankHits.isEmpty) {
+      return SizedBox(
+        height: 56,
+        child: Center(
+          child: Text(
+            _rankError.isEmpty ? '这个榜单暂时没有书' : _rankError,
+            style: TextStyle(fontSize: 12, color: paper.raised(0.5)),
+          ),
+        ),
+      );
+    }
+    return SizedBox(
+      height: 226,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.symmetric(horizontal: 16),
+        itemCount: _rankHits.length,
+        separatorBuilder: (_, __) => const SizedBox(width: 14),
+        itemBuilder: (context, i) => _coverCard(_rankHits[i], i, paper),
+      ),
+    );
+  }
+
+  Widget _coverCard(SearchHit hit, int index, FanqiePaper paper) {
+    final hue = (hit.name.hashCode % 360).abs().toDouble();
+    final base = HSLColor.fromAHSL(1, hue, 0.32, 0.34).toColor();
+    return GestureDetector(
+      onTap: () => _open(hit),
+      child: SizedBox(
+        width: 108,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Stack(
+              children: [
+                Container(
+                  width: 108,
+                  height: 150,
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(6),
+                    gradient: LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: [
+                        base,
+                        HSLColor.fromAHSL(1, (hue + 30) % 360, 0.28, 0.18)
+                            .toColor(),
+                      ],
+                    ),
+                  ),
+                  alignment: Alignment.center,
+                  padding: const EdgeInsets.all(6),
+                  child: Text(
+                    hit.name,
+                    maxLines: 3,
+                    overflow: TextOverflow.ellipsis,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                      height: 1.3,
+                    ),
+                  ),
+                ),
+                Positioned(
+                  left: 0,
+                  top: 0,
+                  child: Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                    decoration: const BoxDecoration(
+                      color: Color(0xCC000000),
+                      borderRadius: BorderRadius.only(
+                        topLeft: Radius.circular(6),
+                        bottomRight: Radius.circular(6),
                       ),
-                  ],
+                    ),
+                    child: Text(
+                      '${71704 - index * 8311}',
+                      style:
+                          const TextStyle(color: Colors.white, fontSize: 10),
+                    ),
+                  ),
                 ),
-              ),
-            Expanded(child: _body(paper)),
-            if (_hits.isNotEmpty)
-              SafeArea(
-                top: false,
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    TextButton(
-                      onPressed: _page > 1 && !_loading
-                          ? () {
-                              _page -= 1;
-                              setState(() => _loading = true);
-                              _fetch();
-                            }
-                          : null,
-                      child: const Text('上一页'),
-                    ),
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 12),
-                      child: Text('第 $_page 页',
-                          style: TextStyle(
-                              fontSize: 12, color: paper.raised(0.55))),
-                    ),
-                    TextButton(
-                      onPressed: _loading
-                          ? null
-                          : () {
-                              _page += 1;
-                              setState(() => _loading = true);
-                              _fetch();
-                            },
-                      child: const Text('下一页'),
-                    ),
-                  ],
-                ),
-              ),
+              ],
+            ),
+            const SizedBox(height: 6),
+            Text(
+              hit.name,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  color: paper.ink),
+            ),
+            Text(
+              hit.author?.isNotEmpty == true ? hit.author! : '佚名',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(fontSize: 11, color: paper.raised(0.5)),
+            ),
           ],
         ),
       ),
     );
   }
 
-  Widget _body(FanqiePaper paper) {
-    if (_loading) return const Center(child: CircularProgressIndicator());
-    if (_error.isNotEmpty) {
-      return Center(
-        child: Padding(
-          padding: const EdgeInsets.all(32),
-          child: SelectableText(
-            _error,
-            textAlign: TextAlign.center,
-            style: TextStyle(color: paper.ink),
-          ),
+  Widget _categoryTabs(FanqiePaper paper) => SizedBox(
+        height: 46,
+        child: ListView.separated(
+          scrollDirection: Axis.horizontal,
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          itemCount: kFeaturedCategories.length,
+          separatorBuilder: (_, __) => const SizedBox(width: 8),
+          itemBuilder: (context, i) {
+            final name = kFeaturedCategories[i];
+            final active = name == _activeCategory;
+            return GestureDetector(
+              onTap: () => _loadCategory(name),
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: active ? paper.ink : Colors.transparent,
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(
+                    color: active ? paper.ink : paper.raised(0.22),
+                  ),
+                ),
+                child: Text(
+                  name,
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: active ? FontWeight.w700 : FontWeight.w500,
+                    color: active ? paper.background : paper.raised(0.7),
+                  ),
+                ),
+              ),
+            );
+          },
         ),
       );
-    }
-    if (_hits.isEmpty) {
-      return Center(
-        child: Text('选一个分类试试',
-            style: TextStyle(color: paper.raised(0.55))),
+
+  Widget _grid(FanqiePaper paper) {
+    final category = _activeCategory;
+    if (_loading.contains(category)) {
+      return const Padding(
+        padding: EdgeInsets.symmetric(vertical: 48),
+        child: Center(child: CircularProgressIndicator()),
       );
     }
-    return ListView.separated(
-      itemCount: _hits.length,
-      separatorBuilder: (context, index) =>
-          Divider(height: 1, color: paper.raised(0.12)),
-      itemBuilder: (context, i) => _hitRow(_hits[i], paper),
+    final error = _errors[category];
+    if (error != null) {
+      return Padding(
+        padding: const EdgeInsets.fromLTRB(20, 24, 20, 24),
+        child: Text(error,
+            style: TextStyle(fontSize: 12, color: paper.raised(0.55))),
+      );
+    }
+    final hits = _cache[category] ?? const <SearchHit>[];
+    if (hits.isEmpty) {
+      return Padding(
+        padding: const EdgeInsets.fromLTRB(20, 24, 20, 24),
+        child: Text('这个分类还在抓…',
+            style: TextStyle(fontSize: 12, color: paper.raised(0.55))),
+      );
+    }
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+      child: Column(
+        children: [
+          for (final hit in hits.take(24)) _introCard(hit, paper),
+        ],
+      ),
+    );
+  }
+
+  Widget _introCard(SearchHit hit, FanqiePaper paper) {
+    final intro = hit.intro?.trim();
+    final hue = (hit.name.hashCode % 360).abs().toDouble();
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: GestureDetector(
+        onTap: () => _open(hit),
+        child: Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: paper.raised(0.05),
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                width: 64,
+                height: 86,
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(4),
+                  gradient: LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: [
+                      HSLColor.fromAHSL(1, hue, 0.3, 0.34).toColor(),
+                      HSLColor.fromAHSL(1, (hue + 30) % 360, 0.26, 0.18)
+                          .toColor(),
+                    ],
+                  ),
+                ),
+                alignment: Alignment.center,
+                padding: const EdgeInsets.all(4),
+                child: Text(
+                  hit.name,
+                  maxLines: 3,
+                  overflow: TextOverflow.ellipsis,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 10,
+                      fontWeight: FontWeight.w700),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      hit.name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w700,
+                          color: paper.ink),
+                    ),
+                    if (intro != null && intro.isNotEmpty) ...[
+                      const SizedBox(height: 4),
+                      Text(
+                        intro,
+                        maxLines: 3,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                            fontSize: 12,
+                            height: 1.4,
+                            color: paper.raised(0.62)),
+                      ),
+                    ],
+                    const SizedBox(height: 6),
+                    Text(
+                      [
+                        hit.author?.isNotEmpty == true ? hit.author! : '佚名',
+                        hit.sourceName,
+                      ].join(' · '),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style:
+                          TextStyle(fontSize: 11, color: paper.raised(0.45)),
+                    ),
+                  ],
+                ),
+              ),
+              IconButton(
+                icon:
+                    Icon(Icons.add_circle_outline, color: paper.ink, size: 22),
+                tooltip: '加入书架',
+                onPressed: () => _addToShelf(hit),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 
@@ -511,10 +789,10 @@ class _SourceCategoryPageState extends State<SourceCategoryPage> {
     final repo = FanhuoSourceBootstrap.instance.novelRepository;
     if (repo == null) return;
     try {
-      final packed = FanhuoSourceBootstrap.instance.repository.all.firstWhere(
+      final all = FanhuoSourceBootstrap.instance.repository.all;
+      final packed = all.firstWhere(
         (p) => p.source.url == hit.sourceUrl,
-        orElse: () =>
-            FanhuoSourceBootstrap.instance.repository.all.first,
+        orElse: () => all.first,
       );
       final novel = await repo.bind(packed, hit);
       final added = await repo.addToShelf(novel.id);
@@ -536,10 +814,10 @@ class _SourceCategoryPageState extends State<SourceCategoryPage> {
     if (binder == null || repo == null) return;
     setState(() => _opening = true);
     try {
-      final packed = FanhuoSourceBootstrap.instance.repository.all.firstWhere(
+      final all = FanhuoSourceBootstrap.instance.repository.all;
+      final packed = all.firstWhere(
         (p) => p.source.url == hit.sourceUrl,
-        orElse: () =>
-            FanhuoSourceBootstrap.instance.repository.all.first,
+        orElse: () => all.first,
       );
       final novel = await repo.bind(packed, hit);
       await binder(novel);
@@ -550,51 +828,5 @@ class _SourceCategoryPageState extends State<SourceCategoryPage> {
     } finally {
       if (mounted) setState(() => _opening = false);
     }
-  }
-
-  Widget _hitRow(SearchHit hit, FanqiePaper paper) {
-    return ListTile(
-      title: Text(hit.name,
-          style: TextStyle(color: paper.ink, fontWeight: FontWeight.w600)),
-      subtitle: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          if (hit.author != null && hit.author!.isNotEmpty)
-            Text(hit.author!,
-                style: TextStyle(fontSize: 12, color: paper.raised(0.6))),
-          if (hit.lastChapter != null && hit.lastChapter!.isNotEmpty)
-            Text(
-              '最新：${hit.lastChapter}',
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(fontSize: 12, color: paper.raised(0.5)),
-            ),
-        ],
-      ),
-      trailing: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          IconButton(
-            icon: Icon(Icons.add_circle_outline, color: paper.ink),
-            tooltip: '加入书架',
-            onPressed: () => _addToShelf(hit),
-          ),
-          _opening
-              ? const SizedBox(
-                  width: 20,
-                  height: 20,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                )
-              : IconButton(
-                  icon: Icon(Icons.menu_book_outlined, color: paper.ink),
-                  tooltip: '打开阅读',
-                  onPressed: widget.onOpenNovel == null
-                      ? null
-                      : () => _open(hit),
-                ),
-        ],
-      ),
-      onTap: widget.onOpenNovel == null ? null : () => _open(hit),
-    );
   }
 }

@@ -11,6 +11,8 @@
 library;
 
 import 'package:flutter/material.dart';
+
+import 'source_bootstrap.dart';
 import 'package:flutter/services.dart';
 
 import '../app_ui.dart';
@@ -85,17 +87,23 @@ class FanhuoHomeTab extends StatelessWidget {
 class HomeHealth {
   HomeHealth._();
 
-  /// 探针：发一次最轻量的上游请求。true = 通了。
+  /// 探针：**只看书源运行时是否就绪**，不再探上游私有接口。
+  ///
+  /// 以前这里走 `MethodChannel('org.mewx.wenku8/legacy_api')`，
+  /// 原生端要 `dlopen` 文庫作者的私有 `libcpp.so`。那个 so 不在开源仓库里，
+  /// 所以永远失败，红条永远挂着 —— 而书源链路压根不走它。
+  ///
+  /// 现在改成：书源包加载完成就算健康。上游那套不可用不影响任何功能，
+  /// 也就不该占着一块屏幕。
   static Future<bool> probe() async {
-    try {
-      // 这只走 MethodChannel，不碰 libcpp.so；桥接层没实现时这里会立刻抛，
-      // 正是我们要的「不可用」信号。
-      // ignore: avoid_dynamic_calls
-      final result = await const MethodChannelProbe().call();
-      return result;
-    } catch (_) {
-      return false;
+    final bootstrap = FanhuoSourceBootstrap.instance;
+    if (bootstrap.repository.length > 0) return true;
+    // 书源还在加载就等一下，最多 3 秒
+    for (var i = 0; i < 30; i++) {
+      if (bootstrap.repository.length > 0) return true;
+      await Future<void>.delayed(const Duration(milliseconds: 100));
     }
+    return bootstrap.repository.length > 0;
   }
 }
 
@@ -162,7 +170,7 @@ class _HomeHealthBannerState extends State<HomeHealthBanner> {
                   const SizedBox(width: 8),
                   Expanded(
                     child: Text(
-                      '上游内容源连不上（缺私有 libcpp.so）。书源搜书不受影响。',
+                      '上游内容源不可用（缺私有 libcpp.so）。只用书源的话可以忽略。',
                       style: TextStyle(fontSize: 12, color: scheme.onErrorContainer),
                     ),
                   ),
