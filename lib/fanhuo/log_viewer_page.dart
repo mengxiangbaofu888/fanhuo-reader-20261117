@@ -75,12 +75,13 @@ class _LogViewerPageState extends State<LogViewerPage> {
         if (++shown >= 50) break;
       }
 
+      final messenger = ScaffoldMessenger.of(context);
       final result = await AppLog.exportBundle(extraFiles: {
         '书源概况.txt': summary.toString(),
       });
       if (!mounted) return;
       if (result == null) {
-        ScaffoldMessenger.of(context).showSnackBar(
+        messenger.showSnackBar(
           const SnackBar(content: Text('导出失败，详见日志')),
         );
         return;

@@ -113,7 +113,7 @@ class FanhuoSourceBootstrap extends ChangeNotifier {
       _loadError = '$error';
       _loadTrace = '失败：$error';
       notifyListeners();
-      AppLog.error('bookSource', '加载失败：$error', stack);
+      AppLog.error('bookSource', '加载失败', error: error, stack: stack);
       if (!_loaded.isCompleted) _loaded.completeError(error, stack);
     }
   }

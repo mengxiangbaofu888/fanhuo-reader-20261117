@@ -576,7 +576,7 @@ class _SourceExplorePageState extends State<SourceExplorePage> {
         scrollDirection: Axis.horizontal,
         padding: const EdgeInsets.symmetric(horizontal: 16),
         itemCount: titles.length,
-        separatorBuilder: (_, __) => const SizedBox(width: 22),
+        separatorBuilder: (context, index) => const SizedBox(width: 22),
         itemBuilder: (context, i) {
           final active = i == _ranking;
           return GestureDetector(
@@ -639,7 +639,7 @@ class _SourceExplorePageState extends State<SourceExplorePage> {
         scrollDirection: Axis.horizontal,
         padding: const EdgeInsets.symmetric(horizontal: 16),
         itemCount: _rankHits.length,
-        separatorBuilder: (_, __) => const SizedBox(width: 14),
+        separatorBuilder: (context, index) => const SizedBox(width: 14),
         itemBuilder: (context, i) => _coverCard(_rankHits[i], i, paper),
       ),
     );
@@ -737,7 +737,7 @@ class _SourceExplorePageState extends State<SourceExplorePage> {
           scrollDirection: Axis.horizontal,
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
           itemCount: kFeaturedCategories.length,
-          separatorBuilder: (_, __) => const SizedBox(width: 8),
+          separatorBuilder: (context, index) => const SizedBox(width: 8),
           itemBuilder: (context, i) {
             final name = kFeaturedCategories[i];
             final active = name == _activeCategory;
