@@ -166,6 +166,7 @@ asset 读取成功：11515771 字节 → 解析完成：2301 条
 - **`SearchRequest` 在 `rule_engine.dart`，不在 `multi_source_search.dart`**
 - **`check-version` 关没有底座** —— `check-dart.js` 的相对 import 检查要判断 `_wenku_base/lib` 是否存在，否则误报
 - **pwsh 的 `Set-Location` 对后续 `[System.IO.File]` 不生效** —— 一律用绝对路径
+- **每次发版后必须跑 `pwsh scripts/sync-apk.ps1`** —— 把 Release 的包同步到 `D:\github\downloads\fanhuo-reader-20261117\apk\`。本地没有 Flutter SDK/NDK，包只能从 CI 产物取；用户要求本地一直留一份
 - **Contents API 大文件会静默失败** —— `js_engine.dart` 推 8 次都失败却显示「OK」，
   远端仍是旧版。**推完必须读回远端内容比对关键字**，不一致就改走 Git Data API（blobs → trees → commits）
 
