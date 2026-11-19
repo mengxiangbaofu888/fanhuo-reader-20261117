@@ -2,6 +2,95 @@
 
 本项目版本号遵循 `主.次.补`，`versionCode = 主*10000 + 次*100 + 补`。
 
+## [1.9.2] - 2026-11-19
+
+用 adb 抓到真机日志后，发现三个独立故障。这一版全部修掉，并且**换了书源包**。
+
+### 一、日志一个字都没落盘（1.9.1 白做了）
+
+真机 logcat 里刷满这一行：
+
+```
+AppLog 写入失败：FileSystemException: An async operation is currently pending,
+  path = '/data/user/0/com.fanhuo.reader/files/logs/app-20261119.log'
+```
+
+`RandomAccessFile` 不允许同一句柄上并发 await。24 路并发抓源同时进 `_write()`，
+每次都撞车，所以一条都没写进去。
+
+修法：**写队列串行化**
+
+```dart
+static Future<void> _queue = Future<void>.value();
+static Future<void> _write(String line, DateTime now) {
+  _pending++;
+  _queue = _queue.then((_) async {
+    try { await _writeNow(line); } finally { _pending--; }
+  });
+  return _queue;
+}
+```
+
+导出和读取前都 `await _queue`，保证拿到完整内容。
+
+### 二、日志位置改成文件管理器能直接打开的
+
+原来写应用内部目录 `/data/user/0/...`，文件管理器看不到、adb 非 debug 包也进不去
+（`run-as: package not debuggable`）。
+
+现在优先写**外部**应用目录：
+
+```
+/sdcard/Android/data/com.fanhuo.reader/files/logs/
+```
+
+手机自带文件管理器可以直接进、可以直接分享。拿不到外部目录才退回内部。
+
+### 三、发现页 24 个源全是死站
+
+真机日志实锤（1.9.1）：
+
+```
+抓取完成 | label=分类:玄幻 ok=0 empty=4 fail=20 books=0 ms=17103
+💯全小说① → Failed host lookup: 'quanxs.net'（域名没了）
+💯无错小说网① → Connection refused
+择日飞升 → Connection reset by peer
+🎉醋溜儿文学 → 页面 5.4KB，class.pictext 匹配 0 节点
+```
+
+**书源包是 2024 年的数据，大批站点已关停。**
+
+### 四、换书源包
+
+aoaostar 的主源**当天（2026-11-19）刚同步过**，3907 条。抽样 60 个域名探测：
+
+| 指标 | 结果 |
+|---|---|
+| 2xx/3xx 可达 | **34 / 60（57%）** |
+| 典型可达 | www.qidian.com / m.suixkan.com / api.leeyegy.com / www.zwduxs.com |
+| 典型失效 | 69shuba.com 403 / siluke.com 503 / ddxs.com timeout / 50zw.so 域名没了 |
+
+对比旧包抽 24 个全挂，差距明显。
+
+新增 `scripts/merge-sources.js`：
+
+- aoaostar 最新全量优先（2124 条去重后）
+- 旷野书屋补 95 条（小众但带人工探测）
+- 每条重新判定 `jsTier`（none / simple / mid / hard）
+- 只保留能吃的字段，包体 20 MB → **10.1 MB**
+
+合并结果：**2219 条 / 可搜 1670 / 带发现页 1142**
+分档：none 1423 / simple 588 / mid 175 / hard 33
+
+### 五、取源顺序修正 + 多批补源
+
+书源包按名字排，`💦` `💯` 这类前缀整批堆在最前面，1.9.1 取的正是这 24 个。
+
+- **活源优先**：`probeStatus == '200'` 的排前面
+- **多批补源**：一批结果少于 12 本就自动补下一批，最多 3 轮（防无限递归）
+- **过滤假分类**：单源分类数 > 200 认为是目录页（努努书坊把 1119 个作者名
+  当分类写进去了），跳过
+
 ## [1.9.1] - 2026-11-19
 
 发现页打不开书，光看界面查不出来。这一版把日志做成能定位问题的样子，

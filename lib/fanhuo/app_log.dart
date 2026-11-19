@@ -44,13 +44,38 @@ abstract final class AppLog {
 
   static Future<void> init() async {
     try {
-      final base = await getApplicationSupportDirectory();
-      final dir = Directory('${base.path}${Platform.pathSeparator}logs');
-      await dir.create(recursive: true);
+      // 优先放**外部**应用目录：`/sdcard/Android/data/com.fanhuo.reader/files/logs`
+      // 手机自带的文件管理器能直接打开、能分享，不用 adb、不用 root。
+      // 拿不到（存储未挂载等）就退回内部目录。
+      Directory? dir;
+      try {
+        final ext = await getExternalStorageDirectory();
+        if (ext != null) {
+          final candidate =
+              Directory('${ext.path}${Platform.pathSeparator}logs');
+          await candidate.create(recursive: true);
+          // 真能写才算数
+          final probe = File('${candidate.path}${Platform.pathSeparator}.probe');
+          await probe.writeAsString('ok', flush: true);
+          await probe.delete();
+          dir = candidate;
+        }
+      } catch (_) {
+        dir = null;
+      }
+      if (dir == null) {
+        final base = await getApplicationSupportDirectory();
+        dir = Directory('${base.path}${Platform.pathSeparator}logs');
+        await dir.create(recursive: true);
+      }
       _dir = dir;
       await _rotateIfNeeded();
       await _cleanupOld();
-      info('AppLog', '日志已启用 | path=${dir.path} verbose=$verbose');
+      info('AppLog', '日志已启用', fields: {
+        'path': dir.path,
+        'external': !dir.path.contains('/data/user/'),
+        'verbose': verbose,
+      });
     } catch (error) {
       debugPrint('AppLog 初始化失败：$error');
     }
@@ -136,6 +161,8 @@ abstract final class AppLog {
     if (fromMemory.length >= lines || _dir == null) {
       return fromMemory.join('\n');
     }
+    // 队列里可能还有没写完的，等它落盘再读
+    await _queue;
     final file = await _currentFile();
     if (file == null || !await file.exists()) return fromMemory.join('\n');
     try {
@@ -154,6 +181,8 @@ abstract final class AppLog {
     final dir = _dir;
     if (dir == null) return null;
     try {
+      // 先把队列里没落盘的行全写完，否则导出的包是残缺的
+      await _queue;
       await _handle?.flush();
       final stamp = _stamp(DateTime.now()).replaceAll(':', '').replaceAll('.', '');
       final zipFile = File('${dir.path}${Platform.pathSeparator}fanhuo-log-$stamp.zip');
@@ -259,21 +288,43 @@ abstract final class AppLog {
     }
   }
 
-  static Future<void> _write(String line, DateTime now) async {
+  /// 写队列：所有写盘串行化。
+  ///
+  /// 为什么必须：`RandomAccessFile` 不允许同一个句柄上并发 await，
+  /// 多路并发抓书源时同时进 `_write`，就会抛
+  /// `FileSystemException: An async operation is currently pending`
+  /// —— 1.9.1 的日志一个字都没落盘就是这个原因。
+  static Future<void> _queue = Future<void>.value();
+
+  /// 待写行数，用来在日志页显示「还有 N 行没落盘」。
+  static int _pending = 0;
+  static int get pendingWrites => _pending;
+
+  static Future<void> _write(String line, DateTime now) {
+    _pending++;
+    _queue = _queue.then((_) async {
+      try {
+        await _writeNow(line);
+      } catch (error) {
+        debugPrint('AppLog 写入失败：$error');
+      } finally {
+        _pending--;
+      }
+    });
+    return _queue;
+  }
+
+  static Future<void> _writeNow(String line) async {
     final dir = _dir;
     if (dir == null) return;
-    try {
-      await _rotateIfNeeded();
-      _handle ??= await (await _currentFile())?.open(mode: FileMode.append);
-      final handle = _handle;
-      if (handle == null) return;
-      final bytes = utf8.encode('$line\n');
-      await handle.writeFrom(bytes);
-      await handle.flush();
-      _written += bytes.length;
-    } catch (error) {
-      debugPrint('AppLog 写入失败：$error');
-    }
+    await _rotateIfNeeded();
+    _handle ??= await (await _currentFile())?.open(mode: FileMode.append);
+    final handle = _handle;
+    if (handle == null) return;
+    final bytes = utf8.encode('$line\n');
+    await handle.writeFrom(bytes);
+    await handle.flush();
+    _written += bytes.length;
   }
 
   static Future<void> _cleanupOld() async {

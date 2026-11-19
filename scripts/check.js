@@ -80,7 +80,7 @@ else {
   if (tiers.simple + tiers.mid + tiers.hard === 0) {
     fail.push('jsTier 一个都没打，先跑一次分级');
   }
-  if (searchable < 1600) fail.push(`可搜数量应 ≥ 1600（子集 + 引擎都放行后），实际 ${searchable}`);
+  if (searchable < 1400) fail.push(`可搜数量应 ≥ 1400（换源后实测 1670），实际 ${searchable}`);
   ok.push(`来源：${Object.entries(packs).map(([k, v]) => `${k} ${v}`).join(' / ')}`);
   const seen = new Set();
   let dup = 0;

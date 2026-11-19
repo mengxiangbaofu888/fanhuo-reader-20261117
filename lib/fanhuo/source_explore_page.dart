@@ -120,6 +120,15 @@ const kRankShelves = <String, List<String>>{
   '完结榜': ['完本', '完结', '全本'],
 };
 
+/// 单个源的分类数超过这个值，认为 exploreUrl 写的是目录页而不是分类。
+const int kMaxCategoriesPerSource = 200;
+
+/// 一批抓完少于这个数，就再补一批源。
+const int kMinBooksWanted = 12;
+
+/// 最多补抓几批源（防无限递归）。
+const int kMaxFetchRounds = 3;
+
 /// 一个源 + 它的某个分类。
 class _SourceCategory {
   const _SourceCategory(this.source, this.category, this.pack);
@@ -174,14 +183,26 @@ class _SourceExplorePageState extends State<SourceExplorePage> {
     final repo = FanhuoSourceBootstrap.instance.repository;
     final all = <_SourceCategory>[];
     final kuangye = <_SourceCategory>[];
+    var skippedFake = 0;
+
     for (final packed in repo.all) {
       final source = packed.source;
       if (!source.canExplore) continue;
-      for (final cat in parseExploreCategories(source.exploreUrl ?? '')) {
+      final cats = parseExploreCategories(source.exploreUrl ?? '');
+      // 有些源把作者列表 / 全部书目写进 exploreUrl（努努书坊 1119 条），
+      // 那不是「分类」。超过 200 个一律当目录页，跳过。
+      if (cats.length > kMaxCategoriesPerSource) {
+        skippedFake++;
+        continue;
+      }
+      for (final cat in cats) {
         final entry = _SourceCategory(source, cat, packed.pack.name);
         all.add(entry);
         if (packed.pack.name == 'kuangye') kuangye.add(entry);
       }
+    }
+    if (skippedFake > 0) {
+      AppLog.info('explore', '跳过假分类源', fields: {'count': skippedFake});
     }
     if (!mounted) {
       _all = all;
@@ -286,10 +307,25 @@ class _SourceExplorePageState extends State<SourceExplorePage> {
     int limit = 24,
     int concurrency = 8,
     String label = '',
+    int round = 1,
   }) async {
+    // ── 排序：活源优先 ──
+    // 书源包是按名字排的，「💦全小说②」「💯3Z中文网」这类整批在最前面，
+    // 1.9.1 就是取了前 24 个，结果 24 个全挂。
+    // 现在按 probeStatus 把「首页可达」的排前面，其余保持原序。
+    int weight(_SourceCategory e) {
+      final status = e.source.probeStatus;
+      if (status == '200') return 0;
+      if (status.isEmpty) return 1;
+      return 2;
+    }
+
+    final ordered = [...entries]
+      ..sort((a, b) => weight(a).compareTo(weight(b)));
+
     final queue = <_SourceCategory>[];
     final seen = <String>{};
-    for (final e in entries) {
+    for (final e in ordered) {
       if (seen.add('${e.source.url}|${e.category.url}')) queue.add(e);
       if (queue.length >= limit) break;
     }
@@ -309,6 +345,7 @@ class _SourceExplorePageState extends State<SourceExplorePage> {
       fields: {
         'label': label,
         'entries': entries.length,
+        'reachable': entries.where((e) => e.source.probeStatus == '200').length,
         'queue': queue.length,
         'concurrency': concurrency,
       },
@@ -371,7 +408,7 @@ class _SourceExplorePageState extends State<SourceExplorePage> {
 
     AppLog.info(
       'explore',
-      '抓取完成',
+      '第一批抓取完成',
       fields: {
         'label': label,
         'ok': okCount,
@@ -381,6 +418,49 @@ class _SourceExplorePageState extends State<SourceExplorePage> {
         'ms': watch.ms,
       },
     );
+
+    // ── 多批补源 ──
+    // 一批 24 个可能全是死站（书源包按名字排，同前缀的成年累月堆在一起）。
+    // 结果太少就往后开下一批，最多 3 批，避免无限递归。
+    if (round < kMaxFetchRounds &&
+        out.length < kMinBooksWanted &&
+        queue.length < ordered.length) {
+      final tried = queue.length;
+      final next = <_SourceCategory>[];
+      final picked = <String>{
+        for (final e in queue) '${e.source.url}|${e.category.url}',
+      };
+      for (final e in ordered) {
+        if (picked.contains('${e.source.url}|${e.category.url}')) continue;
+        next.add(e);
+        if (next.length >= limit) break;
+      }
+      if (next.isNotEmpty) {
+        AppLog.info(
+          'explore',
+          '结果太少，补抓下一批',
+          fields: {
+            'label': label,
+            'round': round,
+            'have': out.length,
+            'want': kMinBooksWanted,
+            'tried': tried,
+            'next': next.length,
+          },
+        );
+        final more = await _fetchFromEntries(
+          next,
+          limit: limit,
+          concurrency: concurrency,
+          label: label,
+          round: round + 1,
+        );
+        for (final hit in more) {
+          if (seenBooks.add(hit.bookUrl)) out.add(hit);
+        }
+      }
+    }
+
     if (out.isEmpty) {
       AppLog.error(
         'explore',
