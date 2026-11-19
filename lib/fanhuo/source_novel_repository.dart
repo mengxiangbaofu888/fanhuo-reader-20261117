@@ -439,7 +439,9 @@ class FanhuoSourceRepository extends NovelRepository {
     final explicit = rule['nextTocUrl'];
     if (explicit != null && explicit.trim().isNotEmpty) {
       try {
-        final picked = RuleEngine.pick(document, explicit, base: base);
+        // pick 在规则匹配不到时返回的是空串还是 null 取决于实现，
+        // 这里统一按可空处理，别赌。
+        final picked = RuleEngine.pick(document, explicit, base: base) ?? '';
         if (picked.isNotEmpty) {
           return _absolute(picked.trim(), base);
         }
@@ -448,7 +450,7 @@ class FanhuoSourceRepository extends NovelRepository {
       }
     }
     for (final a in document.querySelectorAll('a')) {
-      final text = (a.text ?? '').trim();
+      final text = a.text.trim();
       if (text == '下一页' ||
           text == '下一頁' ||
           text == '下页' ||
