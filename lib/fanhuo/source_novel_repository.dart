@@ -174,6 +174,21 @@ class FanhuoSourceRepository extends NovelRepository {
   /// 是否已在书架。
   bool isOnShelf(int novelId) => _shelf.contains(novelId);
 
+  /// 当前收藏的 id 集合（给双向同步用）。
+  Future<Set<int>> shelfIds() async {
+    await _ensureLoaded();
+    return {..._shelf};
+  }
+
+  /// 按 bookUrl 找已登记的 id（没有就返回 null）。
+  Future<int?> idForBookUrl(String bookUrl) async {
+    await _ensureLoaded();
+    for (final b in _bindings.values) {
+      if (b.bookUrl == bookUrl) return b.novelId;
+    }
+    return null;
+  }
+
   /// 书架里的书（给「我的书源书架」用）。
   Future<List<Novel>> shelfBooks() async {
     await _ensureLoaded();

@@ -21,6 +21,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:html/dom.dart' as dom;
 
+import '../archive_wave.dart';
 import '../catalog.dart';
 import 'app_log.dart';
 import 'book_source.dart';
@@ -674,16 +675,48 @@ class _SourceExplorePageState extends State<SourceExplorePage> {
         ),
       );
     }
+    // 榜单用文庫那套书脊轮播：滑到哪本就抽出来露封面。
+    // 原来的横滑卡片太"平"，跟文庫的档案感差得远。
+    final novels = <Novel>[
+      for (final hit in _rankHits) _asNovel(hit),
+    ];
     return SizedBox(
-      height: 226,
-      child: ListView.separated(
-        scrollDirection: Axis.horizontal,
-        padding: const EdgeInsets.symmetric(horizontal: 16),
-        itemCount: _rankHits.length,
-        separatorBuilder: (context, index) => const SizedBox(width: 14),
-        itemBuilder: (context, i) => _coverCard(_rankHits[i], i, paper),
+      height: 268,
+      child: ArchiveFileCarousel(
+        books: novels,
+        animateEntrance: true,
+        onOpen: (novel, _) {
+          final hit = _rankHits.firstWhere(
+            (h) => _novelIdFor(h) == novel.id,
+            orElse: () => _rankHits.first,
+          );
+          _open(hit);
+        },
       ),
     );
+  }
+
+  /// 把搜索命中临时装成 Novel 给轮播用（只用于展示，不登记）。
+  Novel _asNovel(SearchHit hit) => Novel(
+        id: _novelIdFor(hit),
+        title: hit.name,
+        author: hit.author ?? '佚名',
+        genre: hit.sourceName,
+        summary: hit.intro ?? '',
+        colors: _coverColors(hit),
+        coverUrl: hit.coverUrl,
+        lastUpdate: hit.lastChapter,
+      );
+
+  int _novelIdFor(SearchHit hit) =>
+      -900000000 - (hit.bookUrl.hashCode.abs() % 99899999);
+
+  List<Color> _coverColors(SearchHit hit) {
+    final hue = (hit.name.hashCode % 360).abs().toDouble();
+    return [
+      HSLColor.fromAHSL(1, hue, 0.35, 0.30).toColor(),
+      HSLColor.fromAHSL(1, (hue + 24) % 360, 0.42, 0.44).toColor(),
+    ];
   }
 
   Widget _coverCard(SearchHit hit, int index, FanqiePaper paper) {

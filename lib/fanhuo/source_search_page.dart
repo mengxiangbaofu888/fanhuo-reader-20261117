@@ -375,19 +375,10 @@ class _SourceSearchPageState extends State<SourceSearchPage> {
       trailing: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          // 「+」一键收藏：登记成上游 Novel 并加进书架，不用先进阅读页
-          IconButton(
-            icon: Icon(
-              _saving.contains(hit.bookUrl)
-                  ? Icons.hourglass_empty
-                  : Icons.add_circle_outline,
-              color: paper.ink,
-            ),
-            tooltip: '加入书架',
-            onPressed: _saving.contains(hit.bookUrl)
-                ? null
-                : () => _addToShelf(hit, repo),
-          ),
+          // 收藏按钮：做成一整个填色胶囊，别再是那个看不见的细线图标。
+          // 已在书架 → 实心 + 「已收」；未收藏 → 描边 + 「书架」。
+          _shelfButton(hit, paper),
+          const SizedBox(width: 4),
           _opening
               ? const SizedBox(
                   width: 20,
@@ -408,6 +399,82 @@ class _SourceSearchPageState extends State<SourceSearchPage> {
   /// 正在收藏中的 bookUrl（防连点）。
   final Set<String> _saving = {};
 
+  /// 已收藏的 bookUrl（用来把按钮切成「已收」）。
+  final Set<String> _onShelfUrls = {};
+
+  /// 收藏按钮：一整块填色胶囊，宽 64 高 34，比图标显眼得多。
+  Widget _shelfButton(SearchHit hit, FanqiePaper paper) {
+    final saving = _saving.contains(hit.bookUrl);
+    final onShelf = _onShelfUrls.contains(hit.bookUrl);
+    return SizedBox(
+      width: 64,
+      height: 34,
+      child: TextButton(
+        onPressed: saving ? null : () => _toggleShelf(hit),
+        style: TextButton.styleFrom(
+          padding: EdgeInsets.zero,
+          backgroundColor: onShelf ? paper.ink : Colors.transparent,
+          foregroundColor: onShelf ? paper.background : paper.ink,
+          side: BorderSide(
+            color: onShelf ? paper.ink : paper.raised(0.35),
+            width: 1.2,
+          ),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(17),
+          ),
+        ),
+        child: saving
+            ? SizedBox(
+                width: 14,
+                height: 14,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  color: onShelf ? paper.background : paper.ink,
+                ),
+              )
+            : Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(
+                    onShelf ? Icons.check : Icons.add,
+                    size: 15,
+                  ),
+                  const SizedBox(width: 2),
+                  Text(
+                    onShelf ? '已收' : '书架',
+                    style: const TextStyle(
+                        fontSize: 12, fontWeight: FontWeight.w700),
+                  ),
+                ],
+              ),
+      ),
+    );
+  }
+
+  /// 点一次加入，再点一次移出。
+  Future<void> _toggleShelf(SearchHit hit) async {
+    if (_onShelfUrls.contains(hit.bookUrl)) {
+      await _removeFromShelf(hit);
+    } else {
+      await _addToShelf(hit, FanhuoSourceBootstrap.instance.novelRepository);
+    }
+  }
+
+  Future<void> _removeFromShelf(SearchHit hit) async {
+    final repo = FanhuoSourceBootstrap.instance.novelRepository;
+    if (repo == null) return;
+    try {
+      final id = await repo.idForBookUrl(hit.bookUrl);
+      if (id != null) await repo.removeFromShelf(id);
+      if (!mounted) return;
+      setState(() => _onShelfUrls.remove(hit.bookUrl));
+      _toast('已移出书架：${hit.name}');
+      widget.onShelfChanged?.call();
+    } catch (error) {
+      _toast('移出失败：$error');
+    }
+  }
+
   Future<void> _addToShelf(
     SearchHit hit,
     FanhuoSourceRepository? repository,
@@ -424,6 +491,7 @@ class _SourceSearchPageState extends State<SourceSearchPage> {
       );
       final novel = await repository.bind(packed, hit);
       final added = await repository.addToShelf(novel.id);
+      if (mounted) setState(() => _onShelfUrls.add(hit.bookUrl));
       _toast(added ? '已加入书架：${hit.name}' : '《${hit.name}》已在书架里');
       widget.onShelfChanged?.call();
     } catch (error) {

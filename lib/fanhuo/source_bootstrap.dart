@@ -62,7 +62,10 @@ class FanhuoSourceBootstrap extends ChangeNotifier {
 
   /// 由上游调用，注入书架状态（只会调一次，重复调用覆盖）。
   void attachLibrary(LibraryState state) {
+    if (identical(_libraryState, state)) return;
+    _libraryState?.removeListener(_onLibraryChanged);
     _libraryState = state;
+    state.addListener(_onLibraryChanged);
     AppLog.info('bookSource', '已挂接上游书架', fields: {
       'shelfSize': state.shelf.length,
     });
@@ -70,22 +73,42 @@ class FanhuoSourceBootstrap extends ChangeNotifier {
     unawaited(_syncFromLibrary());
   }
 
+  /// 上游书架一变就同步过来。
+  ///
+  /// 这就是「详情页点收藏、UI 亮了但书架不进去」的修复点：
+  /// 原来只有单向下游（启动时同步一次），用户之后的收藏动作没有回流。
+  void _onLibraryChanged() {
+    unawaited(_syncFromLibrary());
+  }
+
+  /// 双向同步：上游书架里的负数 id 书 ⇄ 我的 `fanhuo.shelf.v1`。
   Future<void> _syncFromLibrary() async {
     final state = _libraryState;
     final repo = _novelRepository;
     if (state == null || repo == null) return;
     try {
-      final ids = state.shelf.where((id) => id < 0).toList();
-      if (ids.isEmpty) return;
+      final upstream = state.shelf.where((id) => id < 0).toSet();
+      // 上游有、本地没有 → 补进来（用户刚在详情页点了收藏）
       var adopted = 0;
-      for (final id in ids) {
+      for (final id in upstream) {
+        if (repo.isOnShelf(id)) continue;
         final novel = await repo.find(id);
         if (novel == null) continue;
         if (await repo.addToShelf(id)) adopted++;
       }
-      if (adopted > 0) {
-        AppLog.info('bookSource', '从上游书架补回书源书',
-            fields: {'count': adopted});
+      // 上游没有、本地有 → 移出去（用户在上游取消了收藏）
+      var dropped = 0;
+      for (final id in (await repo.shelfIds()).toList()) {
+        if (upstream.contains(id)) continue;
+        if (await repo.removeFromShelf(id)) dropped++;
+      }
+      if (adopted > 0 || dropped > 0) {
+        AppLog.info('bookSource', '书架已同步', fields: {
+          'adopted': adopted,
+          'dropped': dropped,
+          'upstream': upstream.length,
+        });
+        notifyListeners();
       }
     } catch (error) {
       AppLog.warn('bookSource', '同步上游书架失败', error: error);
