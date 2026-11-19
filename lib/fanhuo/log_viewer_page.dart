@@ -87,7 +87,7 @@ class _LogViewerPageState extends State<LogViewerPage> {
         return;
       }
       await showDialog<void>(
-        context: context,
+        context: mounted ? this.context : context,
         builder: (ctx) => AlertDialog(
           title: const Text('日志包已导出'),
           content: Column(

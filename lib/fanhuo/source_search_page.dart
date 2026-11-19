@@ -348,7 +348,6 @@ class _SourceSearchPageState extends State<SourceSearchPage> {
   }
 
   Widget _hitTile(SearchHit hit, FanqiePaper paper) {
-    final repo = FanhuoSourceBootstrap.instance.novelRepository;
     return ListTile(
       title: Text(
         hit.name,
