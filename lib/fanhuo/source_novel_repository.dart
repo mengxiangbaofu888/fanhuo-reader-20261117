@@ -30,6 +30,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../catalog.dart';
 import '../offline_cache.dart';
+import 'app_log.dart';
 import 'book_source.dart';
 import 'multi_source_search.dart';
 import 'rule_engine.dart';
@@ -74,6 +75,10 @@ class FanhuoBookBinding {
         'lastChapter': lastChapter,
       };
 
+  /// 只在内存里用的失败原因：抓目录/正文哪一步断了。
+  /// 不写进 JSON（每次现抓才有意义）。
+  String? lastError;
+
   factory FanhuoBookBinding.fromJson(Map<String, dynamic> json) =>
       FanhuoBookBinding(
         novelId: json['novelId'] as int? ?? 0,
@@ -107,33 +112,83 @@ class FanhuoSourceRepository extends NovelRepository {
   final Map<int, FanhuoBookBinding> _bindings = {};
   bool _loaded = false;
 
+  /// 书架：已收藏的 novelId 集合。存在 `fanhuo.shelf.v1`。
+  ///
+  /// 为什么单独存：`_bindings` 只是「这本书被打开过」的登记表，
+  /// 而书架是用户主动收的。两者语义不同，混在一起会让所有打开过的书
+  /// 自动出现在书架里。
+  final Set<int> _shelf = {};
+
   /// 内存里最近一次抓到的目录，避免同一次会话里反复抓。
   final Map<int, List<NovelChapter>> _chapterMemo = {};
   final Map<int, List<String>> _tocUrls = {};
 
   static const _bindingsKey = 'fanhuo.books.v1';
+  static const _shelfKey = 'fanhuo.shelf.v1';
 
   /// 书籍 id 从 -900000000 起，和上游本地书（负数小值）错开。
   static const int _idBase = -900000000;
+
+  /// 目录最多抓多少页。3000 章、每页 50 章也才 60 页，200 页足够兜住。
+  static const int _maxTocPages = 200;
 
   Future<void> _ensureLoaded() async {
     if (_loaded) return;
     _loaded = true;
     final prefs = _preferences ??= await SharedPreferences.getInstance();
     final raw = prefs.getString(_bindingsKey);
-    if (raw == null || raw.isEmpty) return;
-    try {
-      final list = jsonDecode(raw);
-      if (list is! List) return;
-      for (final item in list) {
-        if (item is Map<String, dynamic>) {
-          final binding = FanhuoBookBinding.fromJson(item);
-          if (binding.novelId != 0) _bindings[binding.novelId] = binding;
+    if (raw != null && raw.isNotEmpty) {
+      try {
+        final list = jsonDecode(raw);
+        if (list is List) {
+          for (final item in list) {
+            if (item is Map<String, dynamic>) {
+              final binding = FanhuoBookBinding.fromJson(item);
+              if (binding.novelId != 0) _bindings[binding.novelId] = binding;
+            }
+          }
         }
+      } catch (_) {
+        // 存坏了就当没有，不影响使用
       }
-    } catch (_) {
-      // 存坏了就当没有，不影响使用
     }
+    _shelf
+      ..clear()
+      ..addAll(prefs.getIntList(_shelfKey) ?? const []);
+  }
+
+  Future<void> _persistShelf() async {
+    final prefs = _preferences ??= await SharedPreferences.getInstance();
+    await prefs.setIntList(_shelfKey, _shelf.toList(growable: false));
+  }
+
+  /// 是否已在书架。
+  bool isOnShelf(int novelId) => _shelf.contains(novelId);
+
+  /// 书架里的书（给「我的书源书架」用）。
+  Future<List<Novel>> shelfBooks() async {
+    await _ensureLoaded();
+    return [
+      for (final id in _shelf)
+        if (_bindings[id] != null) toNovel(_bindings[id]!),
+    ];
+  }
+
+  /// 加入书架。返回 false 表示本来就在。
+  Future<bool> addToShelf(int novelId) async {
+    await _ensureLoaded();
+    if (!_bindings.containsKey(novelId)) return false;
+    if (!_shelf.add(novelId)) return false;
+    await _persistShelf();
+    return true;
+  }
+
+  /// 移出书架。
+  Future<bool> removeFromShelf(int novelId) async {
+    await _ensureLoaded();
+    if (!_shelf.remove(novelId)) return false;
+    await _persistShelf();
+    return true;
   }
 
   Future<void> _persist() async {
@@ -266,29 +321,63 @@ class FanhuoSourceRepository extends NovelRepository {
     }
 
     final tocUrl = await _resolveTocUrl(source, binding);
-    final html = await fetch(SearchRequest(url: tocUrl), header: source.header);
-    final document = RuleEngine.parseHtml(html);
     final rule = source.tocRule;
     final listRule = rule['chapterList'];
     if (listRule == null) {
-      throw const FormatException('这个书源没有目录规则（ruleToc.chapterList）');
+      binding.lastError = '这个书源没有目录规则（ruleToc.chapterList）';
+      throw FormatException(binding.lastError!);
     }
-    final nodes = RuleEngine.selectNodes(document, listRule);
-    if (nodes.isEmpty) {
-      throw const FormatException('目录页没匹配到任何章节，书源可能改版了');
-    }
+
     final names = <String>[];
     final urls = <String>[];
-    for (final node in nodes) {
-      final name = _field(node, document, rule, 'chapterName', base: tocUrl);
-      final url = _field(node, document, rule, 'chapterUrl', base: tocUrl);
-      if (name == null || url == null) continue;
-      names.add(name.trim());
-      urls.add(_absolute(url, tocUrl));
+    final visitedPages = <String>{};
+    var pageUrl = tocUrl;
+
+    // ── 分页抓全 ──
+    // 很多站的目录是分页的（`?page=1` 只给 50 章），只抓第一页就会
+    // 出现「只有几十章，实际几百几千章」。有 nextTocUrl 就一路跟下去。
+    for (var page = 0; page < _maxTocPages; page++) {
+      if (!visitedPages.add(pageUrl)) break; // 防死循环
+      final html =
+          await fetch(SearchRequest(url: pageUrl), header: source.header);
+      final document = RuleEngine.parseHtml(html);
+      final nodes = RuleEngine.selectNodes(document, listRule);
+
+      if (page == 0 && nodes.isEmpty) {
+        binding.lastError = '目录页没匹配到章节（规则 chapterList=$listRule），'
+            '书源可能改版了；目录页：$pageUrl';
+        throw FormatException(binding.lastError!);
+      }
+
+      // 同一章在分页边界可能重复，用 URL 去重
+      final seen = urls.toSet();
+      var added = 0;
+      for (final node in nodes) {
+        final name = _field(node, document, rule, 'chapterName', base: pageUrl);
+        final url = _field(node, document, rule, 'chapterUrl', base: pageUrl);
+        if (name == null || url == null) continue;
+        final absolute = _absolute(url, pageUrl);
+        if (!seen.add(absolute)) continue;
+        urls.add(absolute);
+        names.add(name.trim());
+        added++;
+      }
+
+      final next = _nextTocPage(rule, document, pageUrl);
+      AppLog.info(
+        'bookSource',
+        '目录第 ${page + 1} 页：${nodes.length} 个节点，新增 $added 章，'
+        '下一页=${next ?? "无"}',
+      );
+      if (next == null || added == 0) break;
+      pageUrl = next;
     }
+
     if (names.isEmpty) {
-      throw const FormatException('目录规则取不到章节名');
+      binding.lastError = '目录规则取不到章节名（chapterName=${rule['chapterName']}）';
+      throw FormatException(binding.lastError!);
     }
+    AppLog.info('bookSource', '目录共 ${names.length} 章（${binding.title}）');
 
     final chapters = <NovelChapter>[
       for (var i = 0; i < names.length; i++)
@@ -334,6 +423,40 @@ class FanhuoSourceRepository extends NovelRepository {
     return binding.bookUrl;
   }
 
+  /// 目录下一页。
+  ///
+  /// `ruleToc.nextTocUrl` 是阅读的约定字段；没有就退化成「找 a 标签里
+  /// 文案是下一页/下一頁/下页/NEXT 的链接」——这是绝大多数分页站的写法。
+  String? _nextTocPage(SourceRule rule, dom.Document document, String base) {
+    final explicit = rule['nextTocUrl'];
+    if (explicit != null && explicit.trim().isNotEmpty) {
+      try {
+        final picked = RuleEngine.pick(document, explicit, base: base);
+        if (picked != null && picked.trim().isNotEmpty) {
+          return _absolute(picked.trim(), base);
+        }
+      } catch (_) {
+        // 规则坏掉就走下面的兜底
+      }
+    }
+    for (final a in document.querySelectorAll('a')) {
+      final text = (a.text ?? '').trim();
+      if (text == '下一页' ||
+          text == '下一頁' ||
+          text == '下页' ||
+          text == '下一章页' ||
+          text.toLowerCase() == 'next' ||
+          text == '›' ||
+          text == '>') {
+        final href = a.attributes['href'];
+        if (href != null && href.trim().isNotEmpty && href != '#') {
+          return _absolute(href.trim(), base);
+        }
+      }
+    }
+    return null;
+  }
+
   /// 抓正文。
   ///
   /// `ruleContent.content` 取 HTML 片段，`ruleContent.nextContentUrl` 处理分页。
@@ -359,6 +482,7 @@ class FanhuoSourceRepository extends NovelRepository {
     final buffer = StringBuffer();
     var url = urls[chapter.id - 1];
     final visited = <String>{};
+    var ruleMissing = false;
     // 分页最多 24 页，防死循环
     for (var page = 0; page < 24; page++) {
       if (!visited.add(url)) break;
@@ -367,7 +491,8 @@ class FanhuoSourceRepository extends NovelRepository {
       final contentRule = source.contentRule;
       final contentRuleText = contentRule['content'];
       if (contentRuleText == null) {
-        throw const FormatException('这个书源没有正文规则（ruleContent.content）');
+        ruleMissing = true;
+        break;
       }
       final raw = RuleEngine.pick(document, contentRuleText, base: url, all: true);
       if (raw == null || raw.trim().isEmpty) break;
@@ -383,7 +508,13 @@ class FanhuoSourceRepository extends NovelRepository {
 
     final text = buffer.toString().trim();
     if (text.isEmpty) {
-      throw const FormatException('正文为空，书源规则可能已失效');
+      // 把失败环节写清楚：是没规则、还是规则匹配到 0 个节点
+      binding.lastError = ruleMissing
+          ? '这个书源没有正文规则（ruleContent.content）'
+          : '正文页没取到内容（content=${source.contentRule['content']}），'
+              '章节页：$url';
+      AppLog.warn('bookSource', binding.lastError!);
+      throw FormatException(binding.lastError!);
     }
     try {
       await cache.saveChapter(

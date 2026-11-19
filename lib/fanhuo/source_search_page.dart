@@ -10,8 +10,10 @@ import 'package:flutter/material.dart';
 
 import '../catalog.dart';
 import 'fanqie_theme.dart';
+import 'book_source.dart';
 import 'multi_source_search.dart';
 import 'source_bootstrap.dart';
+import 'source_novel_repository.dart';
 import 'source_repository.dart';
 
 /// 一次搜索的状态机。
@@ -23,6 +25,7 @@ class SourceSearchPage extends StatefulWidget {
     required this.repository,
     required this.fetch,
     this.onOpenNovel,
+    this.onShelfChanged,
     this.initialKeyword = '',
   });
 
@@ -31,6 +34,9 @@ class SourceSearchPage extends StatefulWidget {
 
   /// 点一本书时：把书源条目登记成上游 Novel，再交给阅读页。
   final Future<void> Function(Novel novel)? onOpenNovel;
+
+  /// 加进书架后通知外面刷新书架列表。
+  final void Function()? onShelfChanged;
   final String initialKeyword;
 
   @override
@@ -90,26 +96,35 @@ class _SourceSearchPageState extends State<SourceSearchPage> {
     });
 
     final engine = MultiSourceSearch(
-      sources: [for (final p in sources) p.source],
+      // 快源先问：首页可达的排前面，用户 30 秒内就能看到第一批结果
+      sources: _sortByReachability(sources),
       fetch: widget.fetch,
-      concurrency: 8,
-      perSourceTimeout: const Duration(seconds: 12),
+      // 现在跑 8 路 × 12 秒超时，1765 个源跑完要好几分钟。
+      // 网络 IO 为主，48 路不会打满 CPU；6 秒不回基本就是死了。
+      concurrency: 48,
+      perSourceTimeout: const Duration(seconds: 6),
       onResult: (result) {
         if (!mounted || _cancel) return;
         setState(() {
           _doneCount++;
-          if (result.ok && result.hits.isNotEmpty) _sourceCount++;
+          if (result.ok && result.hits.isNotEmpty) {
+            _sourceCount++;
+            // 边搜边显示：每有一个源命中就把结果并进去重新排一次
+            _hits = MultiSourceSearch.rank(
+              [..._hits, ...result.hits],
+              keyword: _keyword,
+            );
+          }
         });
       },
     );
 
     try {
-      final hits = await engine.search(keyword);
+      // 用 searchAll 而不是 search：结果已经在 onResult 里边搜边并进去了，
+      // 这里只等它跑完，然后标记完成（不能用 search 否则会把流式结果覆盖掉）。
+      await engine.searchAll(keyword);
       if (!mounted || _cancel) return;
-      setState(() {
-        _hits = hits;
-        _phase = SearchPhase.done;
-      });
+      setState(() => _phase = SearchPhase.done);
     } catch (error) {
       if (!mounted || _cancel) return;
       setState(() {
@@ -117,6 +132,20 @@ class _SourceSearchPageState extends State<SourceSearchPage> {
         _error = '搜索中断：$error';
       });
     }
+  }
+
+  /// 快源先问：有 `probeStatus` 且可达的排前面，其余保持原序。
+  static List<BookSource> _sortByReachability(List<PackedSource> packed) {
+    int weight(PackedSource p) {
+      final status = p.source.probeStatus;
+      if (status.isEmpty) return 2; // 没探测过，中间档
+      if (status == '200') return 0; // 首页可达，最先问
+      return 3; // 探测失败，最后问
+    }
+
+    final sorted = [...packed]
+      ..sort((a, b) => weight(a).compareTo(weight(b)));
+    return [for (final p in sorted) p.source];
   }
 
   @override
@@ -281,6 +310,7 @@ class _SourceSearchPageState extends State<SourceSearchPage> {
   }
 
   Widget _hitTile(SearchHit hit, FanqiePaper paper) {
+    final repo = FanhuoSourceBootstrap.instance.novelRepository;
     return ListTile(
       title: Text(
         hit.name,
@@ -304,18 +334,69 @@ class _SourceSearchPageState extends State<SourceSearchPage> {
           ),
         ],
       ),
-      trailing: _opening
-          ? const SizedBox(
-              width: 20,
-              height: 20,
-              child: CircularProgressIndicator(strokeWidth: 2),
-            )
-          : IconButton(
-              icon: Icon(Icons.menu_book_outlined, color: paper.ink),
-              tooltip: '打开阅读',
-              onPressed: widget.onOpenNovel == null ? null : () => _open(hit),
+      trailing: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // 「+」一键收藏：登记成上游 Novel 并加进书架，不用先进阅读页
+          IconButton(
+            icon: Icon(
+              _saving.contains(hit.bookUrl)
+                  ? Icons.hourglass_empty
+                  : Icons.add_circle_outline,
+              color: paper.ink,
             ),
+            tooltip: '加入书架',
+            onPressed: _saving.contains(hit.bookUrl)
+                ? null
+                : () => _addToShelf(hit, repo),
+          ),
+          _opening
+              ? const SizedBox(
+                  width: 20,
+                  height: 20,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : IconButton(
+                  icon: Icon(Icons.menu_book_outlined, color: paper.ink),
+                  tooltip: '打开阅读',
+                  onPressed: widget.onOpenNovel == null ? null : () => _open(hit),
+                ),
+        ],
+      ),
       onTap: widget.onOpenNovel == null ? null : () => _open(hit),
     );
+  }
+
+  /// 正在收藏中的 bookUrl（防连点）。
+  final Set<String> _saving = {};
+
+  Future<void> _addToShelf(
+    SearchHit hit,
+    FanhuoSourceRepository? repository,
+  ) async {
+    if (repository == null) {
+      _toast('书源运行时还没准备好');
+      return;
+    }
+    setState(() => _saving.add(hit.bookUrl));
+    try {
+      final packed = widget.repository.all.firstWhere(
+        (p) => p.source.url == hit.sourceUrl,
+        orElse: () => widget.repository.all.first,
+      );
+      final novel = await repository.bind(packed, hit);
+      final added = await repository.addToShelf(novel.id);
+      _toast(added ? '已加入书架：${hit.name}' : '《${hit.name}》已在书架里');
+      onShelfChanged?.call();
+    } catch (error) {
+      _toast('加入书架失败：$error');
+    } finally {
+      if (mounted) setState(() => _saving.remove(hit.bookUrl));
+    }
+  }
+
+  void _toast(String text) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(text)));
   }
 }

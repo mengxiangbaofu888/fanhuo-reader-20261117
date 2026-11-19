@@ -22,6 +22,7 @@ import 'source_manager_page.dart';
 import 'source_bootstrap.dart';
 import 'source_repository.dart';
 import 'source_search_page.dart';
+import 'source_shelf_page.dart';
 
 /// 首屏三件套的壳。上游只要把这个 Widget 挂到「我的」或底部 tab，就有可用的首屏。
 class FanhuoHome extends StatefulWidget {
@@ -73,6 +74,11 @@ class _FanhuoHomeState extends State<FanhuoHome> {
   }
 
   void _onBootstrapChanged() {
+    if (mounted) setState(() {});
+  }
+
+  /// 收藏变化时刷新统计（书架卡片没有数字，但保持和其他卡片一致）。
+  void _onShelfChanged() {
     if (mounted) setState(() {});
   }
 
@@ -132,9 +138,24 @@ class _FanhuoHomeState extends State<FanhuoHome> {
                               repository: repository,
                               fetch: widget.fetch,
                               onOpenNovel: widget.onOpenNovel,
+                              onShelfChanged: _onShelfChanged,
                             ),
                           ),
                         ),
+              ),
+              const SizedBox(height: 12),
+              _bigCard(
+                paper: paper,
+                icon: Icons.bookmark_added_outlined,
+                title: '我的书源书架',
+                subtitle: '搜到的书点 ＋ 收进来，离线也能看到目录',
+                onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => SourceShelfPage(
+                      onOpenNovel: widget.onOpenNovel,
+                    ),
+                  ),
+                ),
               ),
               const SizedBox(height: 12),
               _bigCard(
