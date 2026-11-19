@@ -25,6 +25,8 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:html/dom.dart' as dom;
 
+import '../catalog.dart';
+
 import 'app_log.dart';
 import 'book_source.dart';
 import 'fanqie_theme.dart';
@@ -272,12 +274,12 @@ class _SourceCategoryPageState extends State<SourceCategoryPage> {
     super.initState();
     if (widget.categories.isNotEmpty) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        _pick(widget.categories.first);
+        _selectCategory(widget.categories.first);
       });
     }
   }
 
-  Future<void> _pick(ExploreCategory category) async {
+  Future<void> _selectCategory(ExploreCategory category) async {
     setState(() {
       _active = category;
       _loading = true;
@@ -429,7 +431,7 @@ class _SourceCategoryPageState extends State<SourceCategoryPage> {
                           label: Text(c.title,
                               style: const TextStyle(fontSize: 12)),
                           selected: _active?.title == c.title,
-                          onSelected: (_) => _pick(c),
+                          onSelected: (_) => _selectCategory(c),
                         ),
                       ),
                   ],

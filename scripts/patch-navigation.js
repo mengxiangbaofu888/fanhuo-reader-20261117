@@ -181,8 +181,15 @@ import 'fanhuo/source_bootstrap.dart';`,
     replace: `    // 1.8.0：底座 DiscoverPage 依赖私有 libcpp.so，永远加载失败。
     // 换成书源发现页（1256 个源自带分类目录，不碰私有接口）。
     final discover = SourceExplorePage(
-      onOpenNovel: (novel) => _openFanhuoNovel(novel),
+      onOpenNovel: _openFanhuoNovel,
     );`,
+  },
+  {
+    name: '_headers 里 discover 换成书源 masthead',
+    find: `    _headers = [
+      discover.buildHeader,`,
+    replace: `    _headers = [
+      (_) => const ArchiveMasthead(title: '发现', code: '01 / SOURCE ARCHIVE'),`,
   },
   {
     name: '导入 SourceExplorePage',
