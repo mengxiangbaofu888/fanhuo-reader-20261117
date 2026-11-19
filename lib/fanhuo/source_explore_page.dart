@@ -244,7 +244,8 @@ class _SourceExplorePageState extends State<SourceExplorePage> {
         _rankError = '';
       });
     }
-    final hits = await _fetchFromEntries(entries, limit: 10);
+    final hits =
+        await _fetchFromEntries(entries, limit: 10, label: '榜单:$title');
     if (!mounted) return;
     setState(() {
       _rankHits = hits;
@@ -267,7 +268,8 @@ class _SourceExplorePageState extends State<SourceExplorePage> {
       _loading.add(category);
       _errors.remove(category);
     });
-    final hits = await _fetchFromEntries(entries, limit: 24);
+    final hits =
+        await _fetchFromEntries(entries, limit: 24, label: '分类:$category');
     if (!mounted) return;
     setState(() {
       _loading.remove(category);
@@ -283,6 +285,7 @@ class _SourceExplorePageState extends State<SourceExplorePage> {
     List<_SourceCategory> entries, {
     int limit = 24,
     int concurrency = 8,
+    String label = '',
   }) async {
     final queue = <_SourceCategory>[];
     final seen = <String>{};
@@ -294,20 +297,66 @@ class _SourceExplorePageState extends State<SourceExplorePage> {
     final out = <SearchHit>[];
     final seenBooks = <String>{};
     var cursor = 0;
+    var okCount = 0;
+    var emptyCount = 0;
+    var failCount = 0;
+    final failures = <String>[];
+    final watch = AppLog.timer();
+
+    AppLog.info(
+      'explore',
+      '开始抓取',
+      fields: {
+        'label': label,
+        'entries': entries.length,
+        'queue': queue.length,
+        'concurrency': concurrency,
+      },
+    );
 
     Future<void> lane() async {
       while (true) {
         final index = cursor++;
         if (index >= queue.length) return;
         final entry = queue[index];
+        final t = AppLog.timer();
         try {
           final hits = await _fetchOne(entry);
-          for (final hit in hits) {
-            if (seenBooks.add(hit.bookUrl)) out.add(hit);
+          if (hits.isEmpty) {
+            emptyCount++;
+            // 抓到页面但 0 条 → 规则问题，必须记下来查
+            AppLog.warn(
+              'explore',
+              '抓到页面但 0 本书',
+              fields: {
+                'src': entry.source.name,
+                'cat': entry.category.title,
+                'url': entry.category.url,
+                'ms': t.ms,
+              },
+            );
+          } else {
+            okCount++;
+            for (final hit in hits) {
+              if (seenBooks.add(hit.bookUrl)) out.add(hit);
+            }
           }
         } catch (error) {
-          AppLog.debug(
-              'explore', '${entry.source.name} ${entry.category.title}：$error');
+          failCount++;
+          if (failures.length < 12) {
+            failures.add('${entry.source.name}|${entry.category.title}|$error');
+          }
+          AppLog.warn(
+            'explore',
+            '单源抓取失败',
+            fields: {
+              'src': entry.source.name,
+              'cat': entry.category.title,
+              'url': entry.category.url,
+              'ms': t.ms,
+            },
+            error: error,
+          );
         }
       }
     }
@@ -319,6 +368,26 @@ class _SourceExplorePageState extends State<SourceExplorePage> {
       const Duration(seconds: 25),
       onTimeout: () => const <void>[],
     );
+
+    AppLog.info(
+      'explore',
+      '抓取完成',
+      fields: {
+        'label': label,
+        'ok': okCount,
+        'empty': emptyCount,
+        'fail': failCount,
+        'books': out.length,
+        'ms': watch.ms,
+      },
+    );
+    if (out.isEmpty) {
+      AppLog.error(
+        'explore',
+        '一条书都没抓到，可能原因：这些源全部 502/403、或规则全部失效',
+        fields: {'label': label, 'failures': failures.join(' ; ')},
+      );
+    }
     return out;
   }
 
@@ -332,6 +401,10 @@ class _SourceExplorePageState extends State<SourceExplorePage> {
     final body = await bootstrap
         .fetch(SearchRequest(url: url), header: source.header)
         .timeout(const Duration(seconds: 6));
+    // 抓到的是空页面/错误页 → 直接记，别当成「规则问题」误导
+    if (body.trim().isEmpty) {
+      throw StateError('响应为空（$url）');
+    }
     final document = RuleEngine.parseHtml(body);
 
     final exploreList = source.exploreRule['bookList'] ?? '';
@@ -340,14 +413,41 @@ class _SourceExplorePageState extends State<SourceExplorePage> {
         ? source.exploreRule
         : (searchList.isNotEmpty ? source.searchRule : source.exploreRule);
     final listRule = rule['bookList'];
-    if (listRule == null || listRule.isEmpty) return const [];
+    if (listRule == null || listRule.isEmpty) {
+      AppLog.warn(
+        'explore',
+        '没有列表规则，跳过',
+        fields: {'src': source.name, 'cat': entry.category.title},
+      );
+      return const [];
+    }
 
     final nodes = RuleEngine.selectNodes(document, listRule);
+    if (nodes.isEmpty) {
+      AppLog.warn(
+        'explore',
+        '列表规则匹配到 0 个节点',
+        fields: {
+          'src': source.name,
+          'cat': entry.category.title,
+          'rule': listRule,
+          'bodyKB': (body.length / 1024).toStringAsFixed(1),
+          'usedExplore': exploreList.isNotEmpty,
+          'url': url,
+        },
+      );
+      return const [];
+    }
+
     final hits = <SearchHit>[];
+    var dropped = 0;
     for (final node in nodes.take(20)) {
       final name = _pick(node, document, rule, 'name', url);
       final bookUrl = _pick(node, document, rule, 'bookUrl', url);
-      if (name == null || bookUrl == null) continue;
+      if (name == null || bookUrl == null) {
+        dropped++;
+        continue;
+      }
       hits.add(
         SearchHit(
           name: name,
@@ -361,6 +461,21 @@ class _SourceExplorePageState extends State<SourceExplorePage> {
           kind: _pick(node, document, rule, 'kind', url),
           lastChapter: _pick(node, document, rule, 'lastChapter', url),
         ),
+      );
+    }
+    if (dropped > 0) {
+      AppLog.warn(
+        'explore',
+        '部分节点缺 name/bookUrl 被丢弃',
+        fields: {
+          'src': source.name,
+          'cat': entry.category.title,
+          'nodes': nodes.length,
+          'dropped': dropped,
+          'kept': hits.length,
+          'nameRule': rule['name'] ?? '',
+          'urlRule': rule['bookUrl'] ?? '',
+        },
       );
     }
     return hits;
