@@ -15,6 +15,7 @@
 library;
 
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter_js/flutter_js.dart';
 
@@ -42,7 +43,18 @@ class JsEngineFailure implements Exception {
 class _Worker {
   _Worker(this.runtime) {
     runtime.onMessage('__host__', (dynamic args) {
-      final list = args is List ? args : [args];
+      // ⚠️ 铁律：**桥上的参数和返回值都必须是 String**。
+      //
+      // Android 走的是 `QuickJsRuntime2`，它的桥接这样写：
+      //   return channelFunctions[channelName]!.call(jsonDecode(message));
+      // 而 `_jsToDart` 把 JS 数组转成 `List<dynamic>` 直接塞进 FFI 返回值通道，
+      // 于是 JS 传一个数组过来就会炸：
+      //   type 'List<dynamic>' is not a subtype of type 'String'
+      //
+      // 所以 JS 侧一律 `JSON.stringify([...])` 传字符串，这里解成 List。
+      // 兼容老路径：万一是 List 也认。
+      final dynamic decoded = args is String ? _tryDecode(args) : args;
+      final list = decoded is List ? decoded : <dynamic>[decoded];
       final id = list.isNotEmpty ? list[0]?.toString() ?? '' : '';
       final method = list.length > 1 ? list[1]?.toString() ?? '' : '';
       final params = list.length > 2 ? list[2] : null;
@@ -56,9 +68,18 @@ class _Worker {
         'if (window.__nativeResolve) '
         'window.__nativeResolve(${_jsString(id)}, ${_jsString(value)});',
       );
-      // 必须返回 String，且不能是 null
+      // 必须返回 String
       return value;
     });
+  }
+
+  /// 桥上传过来的是 JSON 字符串；解析失败就当成单个参数。
+  static dynamic _tryDecode(String raw) {
+    try {
+      return jsonDecode(raw);
+    } catch (_) {
+      return raw;
+    }
   }
 
   final JavascriptRuntime runtime;
@@ -314,11 +335,16 @@ var __nativePending = {};
 var __jsReqSeq = 0;
 var __jsReqResolvers = {};
 
-// 同步调用：Dart 的桥接回调是同步的，`sendMessage` 的返回值就是结果
+// ⚠️ 桥上只能传字符串：Android 的 QuickJsRuntime2 会把 Dart 数组当
+// List<dynamic> 塞进 FFI 返回值通道，直接抛
+//   type 'List<dynamic>' is not a subtype of type 'String'
+// 所以一律 JSON.stringify 成字符串再过去，Dart 侧再 jsonDecode。
 function __nativeCall(method, params) {
   var id = String(__nativeSeq++);
-  var r = sendMessage('__host__', [id, method, params]);
-  return r === null || r === undefined ? '' : String(r);
+  var r = sendMessage('__host__', JSON.stringify([id, method, params]));
+  if (r === null || r === undefined) return '';
+  if (typeof r !== 'string') return String(r);
+  return r;
 }
 
 // 给 Dart 侧补调用的钩子（Dart 同步回调里会再调一次 __nativeResolve）
@@ -332,7 +358,7 @@ function __nativeRequest(method, params) {
   var id = String(__jsReqSeq++);
   return new Promise(function (resolve) {
     __jsReqResolvers[id] = resolve;
-    sendMessage('__host__', [id, '__req__' + method, params]);
+    sendMessage('__host__', JSON.stringify([id, '__req__' + method, params]));
   });
 }
 function __jsResolve(id, value) {

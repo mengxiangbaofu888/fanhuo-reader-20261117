@@ -13,7 +13,13 @@ import 'js_host_api.dart';
 import 'multi_source_search.dart';
 
 /// 一次自检的结论。
-enum EngineProbeStatus { ok, engineUnavailable, scriptFailed, assertionFailed }
+enum EngineProbeStatus {
+  ok,
+  engineUnavailable,
+  bridgeFailed,
+  scriptFailed,
+  assertionFailed,
+}
 
 class EngineProbeResult {
   const EngineProbeResult(this.status, this.detail, {this.elapsed});
@@ -26,10 +32,26 @@ class EngineProbeResult {
   String get label => switch (status) {
     EngineProbeStatus.ok => '引擎可用',
     EngineProbeStatus.engineUnavailable => '引擎不可用',
+    EngineProbeStatus.bridgeFailed => '桥接不通',
     EngineProbeStatus.scriptFailed => '脚本执行失败',
     EngineProbeStatus.assertionFailed => '结果不对',
   };
 }
+
+/// 桥接自测：只走一次 sendMessage，参数是字符串（不是数组）。
+///
+/// 这是 1.8.0 之前 QuickJS 在真机上报
+/// `type 'List<dynamic>' is not a subtype of type 'String'` 的根源 ——
+/// 桥上来回的东西必须是 String。这一段先用最小脚本验证桥本身。
+const _bridgeProbeScript = r'''
+(function () {
+  var r = sendMessage('__host__', JSON.stringify(['0', 'base64Encode', ['ok']]));
+  return 'bridge:' + String(r);
+})();
+''';
+
+/// 期望值：base64Encode('ok') 的结果。
+const _bridgeExpected = 'bridge:b2s=';
 
 /// 自检用的脚本：把书源最容易踩的几个点都过一遍。
 ///
@@ -66,9 +88,10 @@ final _expected =
 
 /// 跑一次自检。
   ///
-  /// 两段：
-  ///   1. 同步部分（正则/字符串/时间/base64/md5）—— 拼成一个串整体比对
-  ///   2. 异步部分（`java.ajax` 返回 Promise）—— 单独比对，验证 Promise 桥
+  /// 三段，前一段失败就不往下走，能直接指出坏在哪：
+  ///   1. **桥接**：JS 发一条字符串过去、Dart 回一条字符串回来
+  ///   2. **同步脚本**：正则/字符串/时间/base64/md5
+  ///   3. **异步脚本**：`java.ajax` 返回 Promise
   Future<EngineProbeResult> runEngineProbe({
     SourceFetcher? fetch,
     Duration timeout = const Duration(seconds: 8),
@@ -87,6 +110,24 @@ final _expected =
       'key': '',
     };
     try {
+      // ── 第一段：桥接 ──
+      // 只发一个短字符串，验证 sendMessage 能不能正常来回。
+      // 1.8.0 前 Android 的 QuickJsRuntime2 会在数组参数上抛
+      // `type 'List<dynamic>' is not a subtype of type 'String'`，
+      // 这一段专门把那种错误提前抓出来。
+      final bridge = await jsEnginePool
+          .run(_bridgeProbeScript, context: context(), globals: globals)
+          .timeout(timeout);
+      final bridgeTrimmed = bridge.trim();
+      if (bridgeTrimmed != _bridgeExpected) {
+        return EngineProbeResult(
+          EngineProbeStatus.bridgeFailed,
+          '桥接不通\n期望 $_bridgeExpected\n实际 $bridgeTrimmed',
+          elapsed: DateTime.now().difference(started),
+        );
+      }
+
+      // ── 第二段：同步脚本 ──
       final actual = await jsEnginePool
           .run(_probeScript, context: context(), globals: globals)
           .timeout(timeout);

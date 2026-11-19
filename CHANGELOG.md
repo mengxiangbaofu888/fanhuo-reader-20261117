@@ -2,6 +2,98 @@
 
 本项目版本号遵循 `主.次.补`，`versionCode = 主*10000 + 次*100 + 补`。
 
+## [1.8.0] - 2026-11-19
+
+三件事：修 QuickJS 桥接（引擎之前其实全不可用）、书源发现页、底部「发现」换掉。
+
+### 一、QuickJS 桥接的真正根因（1.5.2 修错了地方）
+
+1.5.0 起引擎自检一直报：
+
+```
+type 'List<dynamic>' is not a subtype of type 'String' of 'optimized out'
+```
+
+1.5.2 我以为修好了，其实修的是 `QuickJsRuntime`（老实现）。
+**Android 真机走的是 `QuickJsRuntime2`**：
+
+```dart
+if (Platform.isAndroid && !forceJavascriptCoreOnAndroid) {
+  runtime = QuickJsRuntime2(stackSize: stackSize);
+}
+```
+
+它的桥接是：
+
+```dart
+(setToGlobalObject as JSInvokable).invoke([
+  'sendMessage',
+  (String channelName, String message) {
+    return channelFunctions[channelName]!.call(jsonDecode(message));  // ← 直接把 Dart 值返回给 JS
+  }
+]);
+```
+
+而 `_jsToDart`（`wrapper.dart:209`）把 JS 数组转成 **`List<dynamic>`**：
+
+```dart
+} else if (jsIsArray(ctx, val) != 0) {
+  final ret = [];
+  ...
+  return ret;
+}
+```
+
+于是：JS 传数组 → Dart 拿到 `List` → 要作为 `String` 返回给 FFI → **类型炸掉**。
+
+这不只是自检的问题：`java.ajax`、`java.getUrl` 全都走同一条桥，
+**所以 373 个 mid 档源实际上从来没跑起来过**，能搜到书的只有 605 个 simple 源。
+
+修法：**桥上只传字符串**。
+
+```js
+// 改前：数组过桥，必崩
+sendMessage('__host__', [id, method, params]);
+// 改后：JSON 字符串过桥
+sendMessage('__host__', JSON.stringify([id, method, params]));
+```
+
+Dart 侧统一 `jsonDecode`，并兼容老的 `List` 路径。
+
+### 二、自检改成三步，能直接指出坏在哪
+
+1. **桥接**：JS 发一条字符串、Dart 回一条（`base64Encode('ok')` → `b2s=`）
+2. **同步脚本**：正则/拼接/时间/base64/md5
+3. **异步脚本**：`java.ajax` 返回 Promise
+
+结果多一档「桥接不通」，前一步失败就不往下跑。
+
+### 三、书源发现页（替代上游那个必然失败的「发现」）
+
+底座 `DiscoverPage` 连它自己的私有 `libcpp.so` 接口，拿不到 so 就永远
+「书籍加载失败」。而书源里有 **1256 个带 `exploreUrl`**，自带分类目录。
+
+新增 `source_explore_page.dart`，支持 `exploreUrl` 的三种形态：
+
+| 形态 | 数量 | 样子 |
+|---|---|---|
+| 分栏文本 | 684 | `玄幻奇幻::/xuanhuan/list-1-{{page}}.html` |
+| JSON 数组 | 572 | `[{"title":"都市人生","url":"...?page={{page}}"}]` |
+| 纯 URL | 少量 | 只有一个地址，当成唯一分类 |
+
+列表规则优先 `ruleExplore.bookList`，没有就退回 `ruleSearch.bookList`
+（327/328 的分栏源靠这个兜住）。
+
+界面：书源列表 → 点进某源 → 顶部横滑分类 chip → 抓书单 → ＋收藏 / 打开阅读，
+底部有上一页 / 下一页。
+
+### 四、底部「发现」tab 换成书源发现页
+
+`patch-navigation.js` 增加一个锚点，把 `pages.dart` 里的
+`DiscoverPage(...)` 换成 `SourceExplorePage(...)`。
+红色「上游内容源连不上」的横幅还会在（那是底座自己的状态提示），
+但点进「发现」现在能看到东西了。
+
 ## [1.7.0] - 2026-11-19
 
 三个真问题：搜到的书能收进书架、搜书提速、加载失败能看出原因。

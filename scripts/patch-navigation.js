@@ -165,6 +165,31 @@ import 'fanhuo/source_bootstrap.dart';`,
     find: `              _fanhuoPage,`,
     replace: `              _fanhuoPage,`,
   },
+  {
+    // 1.8.0：底部「发现」改成书源发现页。
+    // 底座那个 DiscoverPage 要连它私有的 libcpp.so 接口，在这台机器上永远
+    // 「书籍加载失败」。书源里有 1256 个源自带分类目录，用它做发现更实际。
+    name: '底部「发现」换成书源发现页',
+    find: `    final discover = DiscoverPage(
+      books: const [],
+      feed: _catalog,
+      state: widget.state,
+      repository: widget.repository,
+      showHeader: false,
+      onSearch: _openSearch,
+    );`,
+    replace: `    // 1.8.0：底座 DiscoverPage 依赖私有 libcpp.so，永远加载失败。
+    // 换成书源发现页（1256 个源自带分类目录，不碰私有接口）。
+    final discover = SourceExplorePage(
+      onOpenNovel: (novel) => _openFanhuoNovel(novel),
+    );`,
+  },
+  {
+    name: '导入 SourceExplorePage',
+    find: `import 'fanhuo/home_tab.dart';`,
+    replace: `import 'fanhuo/home_tab.dart';
+import 'fanhuo/source_explore_page.dart';`,
+  },
 ]);
 
 /* ────────── 2. home_navigation.dart ────────── */
