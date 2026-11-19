@@ -32,8 +32,6 @@ import 'book_source.dart';
 import 'fanqie_theme.dart';
 import 'multi_source_search.dart';
 import 'source_bootstrap.dart';
-import 'source_novel_repository.dart';
-import 'source_repository.dart';
 import 'rule_engine.dart';
 
 /// 一个可点的分类。
