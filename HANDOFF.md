@@ -1,6 +1,6 @@
 # 番茄阅读 Pro — 交接记录
 
-> 最后更新：2026-11-19 17:35（Asia/Shanghai）
+> 最后更新：2026-11-19 19:10（Asia/Shanghai）
 > 下次继续时先读这一份，不要重新翻聊天记录。
 
 ---
@@ -21,7 +21,7 @@
 
 ## 2. 当前状态（已知可用）
 
-**最新发布：v1.7.0** — <https://github.com/mengxiangbaofu888/fanhuo-reader-20261117/releases/tag/v1.7.0>
+**最新发布：v1.8.0** — <https://github.com/mengxiangbaofu888/fanhuo-reader-20261117/releases/tag/v1.8.0>
 
 | 资产 | 大小 |
 |---|---|
@@ -48,7 +48,8 @@ CI 四关全绿：`check-version` → `test`（analyze 零问题 + 127 用例）
 | 1.5.3 | **书源包打进 APK**（此前 `apply-patches.js` 漏拷 `bookSources-merged.json`，正式包一直 0 条书源） |
 | 1.5.4 | 加载全程留痕（`loadTrace`），0 条时界面直接显示原因 |
 | 1.6.0 | 修真因：页面拿的是异步加载前的空快照；加文件日志 + App 内日志查看 |
-| **1.7.0** | **加书架（搜索页 ＋ / 我的书源书架）、搜书并发 8→48 且边搜边显示、失败原因上屏、目录分页抓全** |
+| 1.7.0 | 加书架（搜索页 ＋ / 我的书源书架）、搜书并发 8→48 且边搜边显示、失败原因上屏、目录分页抓全 |
+| **1.8.0** | **修 QuickJS 桥接真根因（Android 走 QuickJsRuntime2，数组过桥必炸）、书源发现页、底部「发现」换掉** |
 
 > 1.5.3~1.6.0 这三版是同一个 bug 的三层排查：
 > 先发现书源包没进 APK（1.5.3）→ 进了包还是 0 条（1.5.4 留痕）→
@@ -133,19 +134,24 @@ asset 读取成功：11515771 字节 → 解析完成：2301 条
 - 每页看 `ruleToc.nextTocUrl`，没有就找「下一页/下頁/next/›」链接
 - 上限 200 页，按 URL 去重防死循环，每页记日志
 
-### 下一步：1.8.0
+### 已做完（1.8.0，2026-11-19）
 
-**a. 书源发现页**（用户反馈「发现页加载不出来」）
-- 根因：上游「发现」tab 连它自己私有 `libcpp.so` 接口，我们没有，永远失败
-- 改：用 1191 个带 `exploreUrl` 的源做真正的发现页
-- 按 `bookSourceGroup` 分组，点分类用 `ruleExplore` 抓列表，完全不碰上游接口
+**a. 书源发现页** —— `source_explore_page.dart`，支持 `exploreUrl` 三种形态
+（分栏文本 684 / JSON 数组 572 / 纯 URL），列表规则优先 `ruleExplore` 退回 `ruleSearch`
 
-**b. 详情页的加入/移出书架**（1.7.0 只做了搜索页和书架页）
+**b. 底部「发现」换成书源发现页** —— `patch-navigation.js` 把 `DiscoverPage` 换掉，
+`_headers` 那项换成 `ArchiveMasthead(title: '发现', code: '01 / SOURCE ARCHIVE')`
 
-### 1.9.0
+**c. QuickJS 桥接真根因** —— 见「必须记住的」第 2 条，Android 走 `QuickJsRuntime2`，
+数组过桥必炸；现在桥上只走 JSON 字符串
 
-**引擎自检的 `List<dynamic>` 报错** —— 独立问题，需要真机定位。
-不影响搜索和阅读。
+### 下一步：1.9.0
+
+1. **真机复验自检**：装 1.8.0 → 书源管理 → 引擎自检。预期「同步 4 项 + 异步 1 项全过」；
+   若显示「桥接不通」就是还有地方在传数组
+2. **详情页的加入/移出书架**（1.7.0 只做了搜索页和书架页）
+3. **底部「书架」tab 也换成书源书架**（现在还是底座那个，虽不像发现页那样必挂，
+   但也读不到书源书）
 
 ---
 
@@ -154,9 +160,14 @@ asset 读取成功：11515771 字节 → 解析完成：2301 条
 ### 必须记住的
 
 - **`apply-patches.js` 会从 `lib/fanhuo/` 覆盖底座** —— 改代码先改源文件
-- **`flutter_js` 桥接回调必须同步返回 String** —— 返回 `Future` / `null` / `List`
-  会在它内部的 `"'$result';"` 里炸成
+- **Android 上 `getJavascriptRuntime()` 返回的是 `QuickJsRuntime2`**（不是 `QuickJsRuntime`）。
+  它的桥接是 `(String channelName, String message) => channelFunctions[channelName]!.call(...)`，
+  直接把 Dart 值返回给 JS；而 `_jsToDart` 会把 JS 数组转成 `List<dynamic>`，
+  于是**桥上只要传数组就必炸**：
   `type 'List<dynamic>' is not a subtype of type 'String'`。
+  1.5.2 只修了 `QuickJsRuntime`，所以真机一直没好。**桥上只传 `JSON.stringify` 后的字符串。**
+- **`flutter_js` 桥接回调必须同步返回 String** —— 返回 `Future` / `null` / `List`
+  会在它内部的 `"'$result';"` 里炸成同样的类型错误。
   异步请求（`java.ajax`）只能走 Promise + `__jsResolve` 回填
 - **`evaluateAsync` 只等「最外层表达式是 Promise」** —— `java.ajax` 必须单独一整句放最后，
   不能混在字符串拼接里，否则拿到的是空串
