@@ -127,15 +127,28 @@ final _expected =
         );
       }
 
-      // ── 第二段：同步脚本 ──
+      // ── 第二段：同步脚本，逐项比对 ──
+      // 原来整串比对，错了只显示「期望 xx 实际 yy」，看不出是哪一项。
+      // 现在拆成 4 项，逐项报：不一致的会单独列出期望值与实际值。
       final actual = await jsEnginePool
           .run(_probeScript, context: context(), globals: globals)
           .timeout(timeout);
       final trimmed = actual.trim();
       if (trimmed != _expected) {
+        final got = trimmed.split('|');
+        final want = _expected.split('|');
+        const labels = ['封面拼接', 'timeFormat', 'base64Decode', 'md5'];
+        final diffs = <String>[];
+        for (var i = 0; i < labels.length; i++) {
+          final g = i < got.length ? got[i] : '（缺）';
+          final w = i < want.length ? want[i] : '';
+          if (g != w) diffs.add('${labels[i]}：期望 $w，实际 $g');
+        }
         return EngineProbeResult(
           EngineProbeStatus.assertionFailed,
-          '同步部分不对\n期望 $_expected\n实际 $trimmed',
+          diffs.isEmpty
+              ? '同步部分不对\n期望 $_expected\n实际 $trimmed'
+              : diffs.join('\n'),
           elapsed: DateTime.now().difference(started),
         );
       }

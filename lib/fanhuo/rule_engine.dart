@@ -324,12 +324,6 @@ abstract final class RuleEngine {
     return current;
   }
 
-  static const _attributes = {
-    'text', 'textNodes', 'ownText', 'html', 'all', 'href', 'src', 'content',
-    'title', 'alt', 'value', 'data-src', 'data-original', 'class', 'id',
-    'contentUrl', 'textHtml',
-  };
-
   /// `@text` / `@src` 这种「取值步」不是选择步。
   ///
   /// 只有 `@` 之后**裸写**的才是取值（`tag.a@href`）；
@@ -339,13 +333,33 @@ abstract final class RuleEngine {
     return _attributes.contains(step) && !step.contains('.');
   }
 
+  static const _attributes = {
+    'text', 'textNodes', 'ownText', 'html', 'all', 'href', 'src', 'content',
+    'title', 'alt', 'value', 'data-src', 'data-original', 'class', 'id',
+    'contentUrl', 'textHtml',
+  };
+
+  /// 阅读语法里 `@a`、`@li`、`@dd` 这种**裸标签名**是合法的选择步
+  /// （等价于 `@tag.a`）。1.9.x 之前这里直接被当无效步骤跳过，
+  /// 导致 `tag.dt@a@text` 整条链取不到东西 —— 界面就画出一堆空书名。
+  static bool _isBareTagStep(String step) {
+    if (step.contains('.')) return false;
+    if (_attributes.contains(step)) return false;
+    // 只留 HTML 标签常见的短名字，避免把奇怪字符串当标签
+    return RegExp(r'^[a-zA-Z][a-zA-Z0-9]{0,9}$').hasMatch(step);
+  }
+
   static List<dom.Node> _applyStep(dom.Node node, String step) {
     // 形如 class.foo / id.bar / tag.div / text.下一页，尾部 .n 是索引
     final parts = step.split('.');
-    final kind = parts[0];
+    var kind = parts[0];
     int? index;
     String? name;
-    if (parts.length >= 2) {
+    // `@a` / `@li` 这种裸标签名 → 当 tag 处理
+    if (_isBareTagStep(step)) {
+      kind = 'tag';
+      name = step;
+    } else if (parts.length >= 2) {
       final last = parts.last;
       final parsed = int.tryParse(last);
       if (parsed != null) {
