@@ -44,24 +44,30 @@ abstract final class AppLog {
 
   static Future<void> init() async {
     try {
-      // 优先放**外部**应用目录：`/sdcard/Android/data/com.fanhuo.reader/files/logs`
-      // 手机自带的文件管理器能直接打开、能分享，不用 adb、不用 root。
-      // 拿不到（存储未挂载等）就退回内部目录。
+      // 日志放**下载目录**：`/sdcard/Download/fanhuo-logs/`
+      //
+      // 为什么不是 Android/data：Android 11 起那个目录连文件管理器都进不去，
+      // 要额外授权，手机上根本找不到。下载目录谁都能开 ——
+      // 文件管理、微信发送、数据线拷贝都行。
       Directory? dir;
-      try {
-        final ext = await getExternalStorageDirectory();
-        if (ext != null) {
-          final candidate =
-              Directory('${ext.path}${Platform.pathSeparator}logs');
+      for (final path in const [
+        '/sdcard/Download/fanhuo-logs',
+        '/storage/emulated/0/Download/fanhuo-logs',
+        '/storage/emulated/0/Documents/fanhuo-logs',
+      ]) {
+        try {
+          final candidate = Directory(path);
           await candidate.create(recursive: true);
           // 真能写才算数
-          final probe = File('${candidate.path}${Platform.pathSeparator}.probe');
+          final probe =
+              File('${candidate.path}${Platform.pathSeparator}.probe');
           await probe.writeAsString('ok', flush: true);
           await probe.delete();
           dir = candidate;
+          break;
+        } catch (_) {
+          continue;
         }
-      } catch (_) {
-        dir = null;
       }
       if (dir == null) {
         final base = await getApplicationSupportDirectory();

@@ -105,17 +105,18 @@ class _SourceSearchPageState extends State<SourceSearchPage> {
       perSourceTimeout: const Duration(seconds: 6),
       onResult: (result) {
         if (!mounted || _cancel) return;
-        setState(() {
-          _doneCount++;
-          if (result.ok && result.hits.isNotEmpty) {
-            _sourceCount++;
-            // 边搜边显示：每有一个源命中就把结果并进去重新排一次
-            _hits = MultiSourceSearch.rank(
-              [..._hits, ...result.hits],
-              keyword: _keyword,
-            );
-          }
-        });
+        _doneCount++;
+        if (result.ok && result.hits.isNotEmpty) {
+          _sourceCount++;
+          // 边搜边显示：每有一个源命中就把结果并进去重新排一次
+          _hits = MultiSourceSearch.rank(
+            [..._hits, ...result.hits],
+            keyword: _keyword,
+          );
+        }
+        // ⚠️ 每来一个源都必须 setState 重建，否则界面只在 onResult 里改了
+        // 内存变量、屏幕不刷新 —— 1.7.0 就是这样，用户看到的是「等全部跑完才出结果」。
+        setState(() {});
       },
     );
 
@@ -242,10 +243,8 @@ class _SourceSearchPageState extends State<SourceSearchPage> {
   }
 
   Widget _body(FanqiePaper paper) {
-    if (_phase == SearchPhase.loading && _hits.isEmpty) {
-      return const Center(child: CircularProgressIndicator());
-    }
-    if (_phase == SearchPhase.failed) {
+    // 失败且没有任何结果，才整屏报错
+    if (_phase == SearchPhase.failed && _hits.isEmpty) {
       return Center(
         child: Padding(
           padding: const EdgeInsets.all(32),
@@ -257,6 +256,20 @@ class _SourceSearchPageState extends State<SourceSearchPage> {
         ),
       );
     }
+    // 还在搜、且一条都还没回来 → 转圈
+    if (_phase == SearchPhase.loading && _hits.isEmpty) {
+      return Column(
+        children: [
+          const SizedBox(height: 60),
+          const CircularProgressIndicator(),
+          const SizedBox(height: 16),
+          Text(
+            '已问 $_doneCount / $_totalSources 个源…',
+            style: TextStyle(fontSize: 12, color: paper.raised(0.5)),
+          ),
+        ],
+      );
+    }
     if (_hits.isEmpty) {
       return Center(
         child: Text(
@@ -265,15 +278,40 @@ class _SourceSearchPageState extends State<SourceSearchPage> {
         ),
       );
     }
+    // 有结果就显示结果 —— **不管搜没搜完**。
+    // 这就是「边搜边出」：每个源回来就并进列表，用户立刻能点。
     return ListView.separated(
       controller: _scroll,
       padding: const EdgeInsets.symmetric(vertical: 8),
-      itemCount: _hits.length,
+      itemCount: _hits.length + (_phase == SearchPhase.loading ? 1 : 0),
       separatorBuilder: (context, index) => Divider(
         height: 1,
         color: paper.raised(0.12),
       ),
-      itemBuilder: (context, i) => _hitTile(_hits[i], paper),
+      itemBuilder: (context, i) {
+        if (i >= _hits.length) {
+          // 末尾那条「还在搜」的提示行
+          return Padding(
+            padding: const EdgeInsets.symmetric(vertical: 20),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const SizedBox(
+                  width: 14,
+                  height: 14,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                ),
+                const SizedBox(width: 10),
+                Text(
+                  '已问 $_doneCount / $_totalSources 个源，还在搜…',
+                  style: TextStyle(fontSize: 12, color: paper.raised(0.5)),
+                ),
+              ],
+            ),
+          );
+        }
+        return _hitTile(_hits[i], paper);
+      },
     );
   }
 

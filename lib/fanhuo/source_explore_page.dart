@@ -123,11 +123,8 @@ const kRankShelves = <String, List<String>>{
 /// 单个源的分类数超过这个值，认为 exploreUrl 写的是目录页而不是分类。
 const int kMaxCategoriesPerSource = 200;
 
-/// 一批抓完少于这个数，就再补一批源。
+/// 抓够这个数（×3）就停止继续问源，省流量。
 const int kMinBooksWanted = 12;
-
-/// 最多补抓几批源（防无限递归）。
-const int kMaxFetchRounds = 3;
 
 /// 一个源 + 它的某个分类。
 class _SourceCategory {
@@ -266,7 +263,7 @@ class _SourceExplorePageState extends State<SourceExplorePage> {
       });
     }
     final hits =
-        await _fetchFromEntries(entries, limit: 10, label: '榜单:$title');
+        await _fetchFromEntries(entries, maxProbe: 60, label: '榜单:$title');
     if (!mounted) return;
     setState(() {
       _rankHits = hits;
@@ -290,7 +287,7 @@ class _SourceExplorePageState extends State<SourceExplorePage> {
       _errors.remove(category);
     });
     final hits =
-        await _fetchFromEntries(entries, limit: 24, label: '分类:$category');
+        await _fetchFromEntries(entries, maxProbe: 80, label: '分类:$category');
     if (!mounted) return;
     setState(() {
       _loading.remove(category);
@@ -299,20 +296,21 @@ class _SourceExplorePageState extends State<SourceExplorePage> {
     });
   }
 
-  /// 并发问多个源，边回边攒。
+  /// 并发问多个源，**一直问到抓够为止**。
   ///
-  /// 一个分类可能有几百个源，全问要几分钟；取前 [limit] 个已经够出几十本。
+  /// 1.9.2 的错：只取前 24 个，问完就收工。真机日志显示这 24 个里
+  /// ok=0 fail=14 empty=10 —— 一个能用的都没有，于是页面空白。
+  ///
+  /// 现在改成「有上限的持续抓」：
+  ///   - 按 probeStatus 把首页可达的排前面
+  ///   - 顺序问下去，**只要还没抓够 [kMinBooksWanted] 本，就一直往后问**
+  ///   - 最多问 [maxProbe] 个源（防个别分类把几百个源全问一遍）
   Future<List<SearchHit>> _fetchFromEntries(
     List<_SourceCategory> entries, {
-    int limit = 24,
+    int maxProbe = 80,
     int concurrency = 8,
     String label = '',
-    int round = 1,
   }) async {
-    // ── 排序：活源优先 ──
-    // 书源包是按名字排的，「💦全小说②」「💯3Z中文网」这类整批在最前面，
-    // 1.9.1 就是取了前 24 个，结果 24 个全挂。
-    // 现在按 probeStatus 把「首页可达」的排前面，其余保持原序。
     int weight(_SourceCategory e) {
       final status = e.source.probeStatus;
       if (status == '200') return 0;
@@ -323,11 +321,12 @@ class _SourceExplorePageState extends State<SourceExplorePage> {
     final ordered = [...entries]
       ..sort((a, b) => weight(a).compareTo(weight(b)));
 
+    // 去重后压到上限
     final queue = <_SourceCategory>[];
     final seen = <String>{};
     for (final e in ordered) {
       if (seen.add('${e.source.url}|${e.category.url}')) queue.add(e);
-      if (queue.length >= limit) break;
+      if (queue.length >= maxProbe) break;
     }
 
     final out = <SearchHit>[];
@@ -355,6 +354,8 @@ class _SourceExplorePageState extends State<SourceExplorePage> {
       while (true) {
         final index = cursor++;
         if (index >= queue.length) return;
+        // 已经抓够了就不再往后问（省流量、省时间）
+        if (out.length >= kMinBooksWanted * 3) return;
         final entry = queue[index];
         final t = AppLog.timer();
         try {
@@ -408,63 +409,23 @@ class _SourceExplorePageState extends State<SourceExplorePage> {
 
     AppLog.info(
       'explore',
-      '第一批抓取完成',
+      '抓取结束',
       fields: {
         'label': label,
         'ok': okCount,
         'empty': emptyCount,
         'fail': failCount,
         'books': out.length,
+        'asked': cursor,
+        'total': queue.length,
         'ms': watch.ms,
       },
     );
 
-    // ── 多批补源 ──
-    // 一批 24 个可能全是死站（书源包按名字排，同前缀的成年累月堆在一起）。
-    // 结果太少就往后开下一批，最多 3 批，避免无限递归。
-    if (round < kMaxFetchRounds &&
-        out.length < kMinBooksWanted &&
-        queue.length < ordered.length) {
-      final tried = queue.length;
-      final next = <_SourceCategory>[];
-      final picked = <String>{
-        for (final e in queue) '${e.source.url}|${e.category.url}',
-      };
-      for (final e in ordered) {
-        if (picked.contains('${e.source.url}|${e.category.url}')) continue;
-        next.add(e);
-        if (next.length >= limit) break;
-      }
-      if (next.isNotEmpty) {
-        AppLog.info(
-          'explore',
-          '结果太少，补抓下一批',
-          fields: {
-            'label': label,
-            'round': round,
-            'have': out.length,
-            'want': kMinBooksWanted,
-            'tried': tried,
-            'next': next.length,
-          },
-        );
-        final more = await _fetchFromEntries(
-          next,
-          limit: limit,
-          concurrency: concurrency,
-          label: label,
-          round: round + 1,
-        );
-        for (final hit in more) {
-          if (seenBooks.add(hit.bookUrl)) out.add(hit);
-        }
-      }
-    }
-
     if (out.isEmpty) {
       AppLog.error(
         'explore',
-        '一条书都没抓到，可能原因：这些源全部 502/403、或规则全部失效',
+        '一条书都没抓到：问过的源全部 502/403/超时，或规则全部失效',
         fields: {'label': label, 'failures': failures.join(' ; ')},
       );
     }
