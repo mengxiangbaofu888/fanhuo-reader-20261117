@@ -72,40 +72,6 @@ function read(rel) {
   }
 }
 
-/* ───────── 2. 本地书架按钮 ───────── */
-{
-  const { file, text } = read('lib/review_pages.dart');
-  const FIND = `        final actions = [
-          GlassTextButton(
-            key: const ValueKey('detail-cloud-save'),`;
-  const REPL = `        final actions = [
-          // 真正的「加入书架」——写本地 LibraryState，点了立刻在书架见到。
-          _ShelfToggleButton(state: state, novel: novel),
-          GlassTextButton(
-            key: const ValueKey('detail-cloud-save'),`;
-
-  let src = text;
-  if (!src.includes('_ShelfToggleButton(state: state, novel: novel)')) {
-    if (!src.includes(FIND)) {
-      console.error('[detail-patch] review_pages.dart 找不到 actions 锚点');
-      process.exit(1);
-    }
-    src = src.replace(FIND, REPL);
-    log('review_pages.dart: 插入书架按钮');
-  } else {
-    log('review_pages.dart: 书架按钮（已应用，跳过）');
-  }
-
-  if (!src.includes('class _ShelfToggleButton extends StatefulWidget')) {
-    src += COMPONENT;
-    log('review_pages.dart: 追加 _ShelfToggleButton 组件');
-  } else {
-    log('review_pages.dart: _ShelfToggleButton 组件（已应用，跳过）');
-  }
-
-  if (src !== text) fs.writeFileSync(file, src, 'utf8');
-}
-
 /** 组件本体。用变量持有，避免模板字符串里再套反引号。 */
 const COMPONENT = `
 
@@ -179,5 +145,39 @@ class _ShelfToggleButtonState extends State<_ShelfToggleButton> {
   }
 }
 `;
+
+/* ───────── 2. 本地书架按钮 ───────── */
+{
+  const { file, text } = read('lib/review_pages.dart');
+  const FIND = `        final actions = [
+          GlassTextButton(
+            key: const ValueKey('detail-cloud-save'),`;
+  const REPL = `        final actions = [
+          // 真正的「加入书架」——写本地 LibraryState，点了立刻在书架见到。
+          _ShelfToggleButton(state: state, novel: novel),
+          GlassTextButton(
+            key: const ValueKey('detail-cloud-save'),`;
+
+  let src = text;
+  if (!src.includes('_ShelfToggleButton(state: state, novel: novel)')) {
+    if (!src.includes(FIND)) {
+      console.error('[detail-patch] review_pages.dart 找不到 actions 锚点');
+      process.exit(1);
+    }
+    src = src.replace(FIND, REPL);
+    log('review_pages.dart: 插入书架按钮');
+  } else {
+    log('review_pages.dart: 书架按钮（已应用，跳过）');
+  }
+
+  if (!src.includes('class _ShelfToggleButton extends StatefulWidget')) {
+    src += COMPONENT;
+    log('review_pages.dart: 追加 _ShelfToggleButton 组件');
+  } else {
+    log('review_pages.dart: _ShelfToggleButton 组件（已应用，跳过）');
+  }
+
+  if (src !== text) fs.writeFileSync(file, src, 'utf8');
+}
 
 log('完成');
