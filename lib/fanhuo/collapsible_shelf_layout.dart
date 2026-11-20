@@ -44,7 +44,6 @@ class _CollapsibleShelfLayoutState extends State<CollapsibleShelfLayout> {
   static const _snaps = <double>[0.18, 0.42, 0.68];
 
   late double _ratio = widget.initialRatio.clamp(_min, _max);
-  double _dragStart = 0;
 
   /// 拖拽中不吸顶，松手才吸。
   bool _dragging = false;
@@ -96,7 +95,6 @@ class _CollapsibleShelfLayoutState extends State<CollapsibleShelfLayout> {
       behavior: HitTestBehavior.opaque,
       onVerticalDragStart: (_) {
         _dragging = true;
-        _dragStart = _ratio;
       },
       onVerticalDragUpdate: (details) {
         final h = MediaQuery.sizeOf(context).height;

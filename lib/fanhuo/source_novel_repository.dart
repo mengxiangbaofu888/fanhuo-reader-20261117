@@ -471,7 +471,8 @@ class FanhuoSourceRepository extends NovelRepository {
       binding.lastError = '目录规则取不到章节名（chapterName=${rule['chapterName']}）';
       throw FormatException(binding.lastError!);
     }
-    AppLog.info('bookSource', '目录共 ${names.length} 章（${binding.title}）');
+    AppLog.info('bookSource', '目录共 ${names.length} 章（${binding.title}）',
+        fields: {'src': source.name, 'ms': watch.ms});
 
     final chapters = <NovelChapter>[
       for (var i = 0; i < names.length; i++)
