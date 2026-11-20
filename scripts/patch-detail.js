@@ -146,6 +146,56 @@ class _ShelfToggleButtonState extends State<_ShelfToggleButton> {
 }
 `;
 
+/* ───────── 2. LibraryState 接受 fromSync ───────── */
+{
+  const { file, text } = read('lib/library_state.dart');
+  const FIND = `  Future<void> setShelfMembership(
+    int id,
+    bool present, {
+    Novel? novel,
+    int? restoredAddedAt,
+  }) async {
+    if (_restoreBarrier case final barrier?) {
+      return barrier.future.then(
+        (_) => setShelfMembership(
+          id,
+          present,
+          novel: novel,
+          restoredAddedAt: restoredAddedAt,
+        ),
+      );
+    }`;
+  const REPL = `  Future<void> setShelfMembership(
+    int id,
+    bool present, {
+    Novel? novel,
+    int? restoredAddedAt,
+    bool fromSync = false,
+  }) async {
+    if (_restoreBarrier case final barrier?) {
+      return barrier.future.then(
+        (_) => setShelfMembership(
+          id,
+          present,
+          novel: novel,
+          restoredAddedAt: restoredAddedAt,
+          fromSync: fromSync,
+        ),
+      );
+    }`;
+
+  if (text.includes('bool fromSync = false,')) {
+    log('library_state.dart: fromSync 参数（已应用，跳过）');
+  } else if (text.includes(FIND)) {
+    fs.writeFileSync(file, text.replace(FIND, REPL), 'utf8');
+    log('library_state.dart: 加 fromSync 参数');
+  } else {
+    console.error(
+        '[detail-patch] library_state.dart 找不到 setShelfMembership 锚点');
+    process.exit(1);
+  }
+}
+
 /* ───────── 2. 本地书架按钮 ───────── */
 {
   const { file, text } = read('lib/review_pages.dart');
