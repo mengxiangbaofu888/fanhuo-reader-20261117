@@ -59,6 +59,10 @@ class _SourceSearchPageState extends State<SourceSearchPage> {
   @override
   void initState() {
     super.initState();
+    // 先把「已经在书架里的书」读出来，否则搜索页永远显示「＋ 书架」，
+    // 用户根本不知道哪本已经加过了。
+    _loadShelfState();
+    FanhuoSourceBootstrap.instance.addListener(_loadShelfState);
     if (widget.initialKeyword.isNotEmpty) {
       _controller.text = widget.initialKeyword;
       WidgetsBinding.instance.addPostFrameCallback((_) => _search());
@@ -68,9 +72,25 @@ class _SourceSearchPageState extends State<SourceSearchPage> {
   @override
   void dispose() {
     _cancel = true;
+    FanhuoSourceBootstrap.instance.removeListener(_loadShelfState);
     _controller.dispose();
     _scroll.dispose();
     super.dispose();
+  }
+
+  /// 把本地书架里所有书的 bookUrl 灌进 `_onShelfUrls`，按钮据此显示「已收」。
+  Future<void> _loadShelfState() async {
+    final repo = FanhuoSourceBootstrap.instance.novelRepository;
+    if (repo == null) return;
+    try {
+      final urls = await repo.shelfBookUrls();
+      if (!mounted) return;
+      setState(() {
+        _onShelfUrls
+          ..clear()
+          ..addAll(urls);
+      });
+    } catch (_) {}
   }
 
   Future<void> _search() async {
@@ -467,6 +487,7 @@ class _SourceSearchPageState extends State<SourceSearchPage> {
       if (id != null) await repo.removeFromShelf(id);
       if (!mounted) return;
       setState(() => _onShelfUrls.remove(hit.bookUrl));
+      await _loadShelfState();
       _toast('已移出书架：${hit.name}');
       widget.onShelfChanged?.call();
     } catch (error) {
@@ -491,6 +512,7 @@ class _SourceSearchPageState extends State<SourceSearchPage> {
       final novel = await repository.bind(packed, hit);
       final added = await repository.addToShelf(novel.id);
       if (mounted) setState(() => _onShelfUrls.add(hit.bookUrl));
+      await _loadShelfState();
       _toast(added ? '已加入书架：${hit.name}' : '《${hit.name}》已在书架里');
       widget.onShelfChanged?.call();
     } catch (error) {

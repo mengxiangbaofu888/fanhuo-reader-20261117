@@ -81,39 +81,75 @@ class FanhuoSourceBootstrap extends ChangeNotifier {
     unawaited(_syncFromLibrary());
   }
 
+  /// 正在同步中。同步过程本身会写两边，写又触发监听 —— 必须挡掉，否则自我递归。
+  bool _syncing = false;
+
+  /// 同步期间被挡掉的变更请求，结束后补一次。
+  bool _syncAgain = false;
+
   /// 双向同步：上游书架里的负数 id 书 ⇄ 我的 `fanhuo.shelf.v1`。
+  ///
+  /// ⚠️ 两个必须：
+  /// 1. **互斥**：`removeFromShelf` 会写上游 → 上游 notify → 又进这里，
+  ///    没有 `_syncing` 就是无限递归，而且每轮都在删书（用户报的「旧书丢了」）。
+  /// 2. **以「并集」为准，只有明确移除才删**：从上游读到的集合可能暂时不全
+  ///    （`attachLibrary` 早于 `LibraryState` 恢复完成），
+  ///    拿它当「真相」去删本地，就会误删用户的书。
   Future<void> _syncFromLibrary() async {
+    if (_syncing) {
+      _syncAgain = true;
+      return;
+    }
     final state = _libraryState;
     final repo = _novelRepository;
     if (state == null || repo == null) return;
+    _syncing = true;
     try {
-      final upstream = state.shelf.where((id) => id < 0).toSet();
-      // 上游有、本地没有 → 补进来（用户刚在详情页点了收藏）
-      var adopted = 0;
-      for (final id in upstream) {
-        if (repo.isOnShelf(id)) continue;
-        final novel = await repo.find(id);
-        if (novel == null) continue;
-        if (await repo.addToShelf(id)) adopted++;
-      }
-      // 上游没有、本地有 → 移出去（用户在上游取消了收藏）
-      var dropped = 0;
-      for (final id in (await repo.shelfIds()).toList()) {
-        if (upstream.contains(id)) continue;
-        if (await repo.removeFromShelf(id)) dropped++;
-      }
-      if (adopted > 0 || dropped > 0) {
-        AppLog.info('bookSource', '书架已同步', fields: {
-          'adopted': adopted,
-          'dropped': dropped,
-          'upstream': upstream.length,
-        });
-        notifyListeners();
-      }
+      do {
+        _syncAgain = false;
+        final upstream = state.shelf.where((id) => id < 0).toSet();
+        final local = await repo.shelfIds();
+
+        // 上游有、本地没有 → 补进来
+        var adopted = 0;
+        for (final id in upstream) {
+          if (local.contains(id)) continue;
+          final novel = await repo.find(id);
+          if (novel == null) continue;
+          if (await repo.addToShelf(id, fromSync: true)) adopted++;
+        }
+
+        // 只删「上次同步时上游有、这次上游没有」的书。
+        // 不直接删 `local - upstream`：上游集合可能还没恢复完整，
+        // 那样会把用户刚加的书删掉。
+        var dropped = 0;
+        final lastSeen = _lastUpstreamIds;
+        if (lastSeen != null) {
+          for (final id in lastSeen.difference(upstream)) {
+            if (await repo.removeFromShelf(id, fromSync: true)) dropped++;
+          }
+        }
+        _lastUpstreamIds = upstream;
+
+        if (adopted > 0 || dropped > 0) {
+          AppLog.info('bookSource', '书架已同步', fields: {
+            'adopted': adopted,
+            'dropped': dropped,
+            'upstream': upstream.length,
+            'local': local.length,
+          });
+          notifyListeners();
+        }
+      } while (_syncAgain);
     } catch (error) {
       AppLog.warn('bookSource', '同步上游书架失败', error: error);
+    } finally {
+      _syncing = false;
     }
   }
+
+  /// 上一次同步时上游书架里的负数 id。用来判断「真的被移出了」。
+  Set<int>? _lastUpstreamIds;
 
   /// 启动：读设置 + 后台解书源包。重复调用无副作用。
   void start() {

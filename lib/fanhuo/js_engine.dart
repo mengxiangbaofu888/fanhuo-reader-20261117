@@ -266,11 +266,22 @@ class JsEnginePool {
       // 如果脚本里是 `var id = ...`，第二次会报「已声明」。
       // 包进函数作用域后每次都是全新的局部变量，可以安全重跑。
       final wrapped = '(function(){\n$script\n})()';
-      final syncResult = runtime.evaluate(wrapped);
+      var syncResult = runtime.evaluate(wrapped);
       if (syncResult.isError) {
         throw JsEngineFailure(_clean(syncResult));
       }
-      final syncText = syncResult.stringResult;
+      var syncText = syncResult.stringResult;
+
+      // ⚠️ 同步宿主 API 的结果也是在桥回调里**塞队列**的（不能重入 evaluate），
+      // 所以第一次执行完，`__nativeResolve` 还没跑，`sendMessage` 拿到的是 null。
+      // 这里补一轮：先把队列跑掉，再重新执行脚本，同步 API 就能拿到真值。
+      // 桥接自检报「实际 null」就是漏了这一步。
+      if (worker.takePending() > 0) {
+        _drainMicrotasks(runtime);
+        final again = runtime.evaluate(wrapped);
+        if (again.isError) throw JsEngineFailure(_clean(again));
+        syncText = again.stringResult;
+      }
 
       // 第二步：脚本返回的不是值，说明它在等宿主异步回填。
       //

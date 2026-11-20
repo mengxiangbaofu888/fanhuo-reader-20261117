@@ -180,6 +180,15 @@ class FanhuoSourceRepository extends NovelRepository {
     return {..._shelf};
   }
 
+  /// 书架里所有书的 bookUrl（搜索页据此把按钮切成「已收」）。
+  Future<Set<String>> shelfBookUrls() async {
+    await _ensureLoaded();
+    return {
+      for (final id in _shelf)
+        if (_bindings[id] != null) _bindings[id]!.bookUrl,
+    };
+  }
+
   /// 按 bookUrl 找已登记的 id（没有就返回 null）。
   Future<int?> idForBookUrl(String bookUrl) async {
     await _ensureLoaded();
@@ -202,35 +211,45 @@ class FanhuoSourceRepository extends NovelRepository {
   ///
   /// 同时写进上游 `LibraryState` —— 详情页的收藏按钮读的是那套，
   /// 两边不同步就会出现「加了书架但详情页显示未收藏」或反过来。
-  Future<bool> addToShelf(int novelId) async {
+  Future<bool> addToShelf(int novelId, {bool fromSync = false}) async {
     await _ensureLoaded();
     final binding = _bindings[novelId];
     if (binding == null) return false;
     final added = _shelf.add(novelId);
     if (added) await _persistShelf();
-    await _writeUpstreamShelf(novelId, true, toNovel(binding));
+    await _writeUpstreamShelf(novelId, true, toNovel(binding),
+        fromSync: fromSync);
     return added;
   }
 
   /// 移出书架。
-  Future<bool> removeFromShelf(int novelId) async {
+  Future<bool> removeFromShelf(int novelId, {bool fromSync = false}) async {
     await _ensureLoaded();
     final removed = _shelf.remove(novelId);
     if (removed) await _persistShelf();
-    await _writeUpstreamShelf(novelId, false, null);
+    await _writeUpstreamShelf(novelId, false, null, fromSync: fromSync);
     return removed;
   }
 
   /// 同步写上游书架。失败只记日志，不影响本地的收藏结果。
+  ///
+  /// `fromSync = true` 表示这次改动是「同步逻辑自己发起的」，
+  /// 不需要再回头触发一轮同步（否则 add→notify→sync→add 无限循环）。
   Future<void> _writeUpstreamShelf(
     int novelId,
     bool present,
-    Novel? novel,
-  ) async {
+    Novel? novel, {
+    bool fromSync = false,
+  }) async {
     final state = FanhuoSourceBootstrap.instance.libraryState;
     if (state == null) return;
     try {
-      await state.setShelfMembership(novelId, present, novel: novel);
+      await state.setShelfMembership(
+        novelId,
+        present,
+        novel: novel,
+        fromSync: fromSync,
+      );
     } catch (error) {
       AppLog.warn('bookSource', '写上游书架失败', fields: {
         'id': novelId,
