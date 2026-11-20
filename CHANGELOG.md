@@ -2,6 +2,71 @@
 
 本项目版本号遵循 `主.次.补`，`versionCode = 主*10000 + 次*100 + 补`。
 
+## [2.2.0] - 2026-11-20
+
+### 一、异步桥从来就没真正 await 过（大 bug）
+
+2.1.2 修完 `timeFormat` 之后，自检继续往下一项走，暴露出更深的问题：
+
+```
+异步桥不对（java.ajax 应当返回 AJAX_OK，实际 instance of 'Future<dynamic>'）
+```
+
+**`instance of 'Future<dynamic>'`** —— JS 侧拿到的是 Dart 的 Future 对象，
+说明 `evaluateAsync` 在 `QuickJsRuntime2` 上根本不认识 Dart 的异步。
+
+这条桥是 `java.ajax` / `java.getUrl` / `java.post` / `java.connect` 的唯一通路，
+也就是说**所有需要二次请求的书源（详情、目录、正文）都受影响** ——
+用户看到「搜到了但点进去加载失败重试」就是这个。
+
+原来的实现有个致命细节：
+
+```dart
+runtime.onMessage('__host__', (args) {
+  ...
+  runtime.evaluate('window.__nativeResolve(...)');   // ← 在桥的同步回调里再调 evaluate
+});
+```
+
+`QuickJsRuntime2` 的桥回调是**同步进入 JS 线程**的，在里面再调 `evaluate` 会被
+拒绝或静默失败，于是 `__nativeResolve` 永远跑不到，Promise 永远 pending。
+
+修法（两步）：
+
+1. **结果队列**：桥回调不再 `evaluate`，把回填语句塞进 `_pending`
+2. **外部轮询**：`run()` 里脚本返回 Promise 壳（空串 / `[object Promise]` /
+   `instance of 'Future`）时，循环
+   「等 25ms → 跑掉队列 → 跑 microtask → 重新执行脚本」，最多 6 秒
+
+配套：脚本一律包进 `(function(){...})()`。因为轮询会**重复执行同一段脚本**，
+书源里常见的 `var id = ...` 第二次会报「已声明」，包进函数作用域就安全了。
+
+### 二、目录抓取加超时 + 全程日志
+
+`chapters()` 里抓目录页**没有超时**。有的站接上 TCP 就不吐字节，整个 Future 卡死，
+外层 6 秒把 QuickJS 实例废弃，用户只看到「加载失败」。
+
+现在：
+
+- 每页 12 秒超时
+- 失败记 `目录页抓取失败 | book/src/page/url/ms || error=...`
+- 成功记 `目录页解析 | nodes/bodyKB/rule/ms`
+- 规则匹配 0 节点记 `目录规则匹配 0 节点`
+
+### 三、发现页 / 书架改成可拖拽分栏
+
+用户反馈「UI 显示不全，看底下的书不方便」。
+
+新增 `CollapsibleShelfLayout`：
+
+| 交互 | 行为 |
+|---|---|
+| 拖中间横条 | 轮播区高度 18%~75% 实时变化 |
+| 松手 | 吸附到最近一档（18% / 42% / 68%），动画 180ms |
+| 点横条 | 一键收起 / 展开（收起后横条变宽，更好点） |
+
+发现页和书架页都用上了。书架少于 4 本仍不显示轮播。
+
 ## [2.1.2] - 2026-11-20
 
 用户装了 2.1.0 报了三件事，都是这一版修。

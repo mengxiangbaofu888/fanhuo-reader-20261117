@@ -64,10 +64,12 @@ class _Worker {
         return '';
       }
       final value = _dispatchSync(method, params);
-      runtime.evaluate(
-        'if (window.__nativeResolve) '
-        'window.__nativeResolve(${_jsString(id)}, ${_jsString(value)});',
-      );
+      // ⚠️ 不能在这里再调 `runtime.evaluate` —— 我们正处在桥的**同步回调**里，
+      // QuickJsRuntime2 会拒绝重入（或静默失败），于是 `__nativeResolve`
+      // 永远跑不到，JS 那边拿到的就是 `instance of 'Future<dynamic>'`。
+      // 改成：把结果塞进待办队列，由 [takePending] 在**脚本执行之外**统一回填。
+      _pending.add('if (window.__nativeResolve) '
+          'window.__nativeResolve(${_jsString(id)}, ${_jsString(value)});');
       // 必须返回 String
       return value;
     });
@@ -86,6 +88,24 @@ class _Worker {
   JsHostApi? host;
   DateTime lastUsed = DateTime.now();
   bool broken = false;
+
+  /// 待回填的 JS 语句（宿主回调不能在桥里执行 evaluate，先攒着）。
+  final List<String> _pending = [];
+
+  /// 在**脚本执行之外**把攒下的回填语句跑掉。返回跑了几条。
+  int takePending() {
+    if (_pending.isEmpty) return 0;
+    final batch = List<String>.from(_pending);
+    _pending.clear();
+    for (final snippet in batch) {
+      try {
+        runtime.evaluate(snippet);
+      } catch (_) {
+        // 实例可能已经被回收
+      }
+    }
+    return batch.length;
+  }
 
   static String _jsString(String value) {
     // 用 JSON 编码当 JS 字符串字面量，避开手写转义
@@ -173,6 +193,8 @@ class _Worker {
     } catch (_) {
       // 实例可能已经超时被回收，忽略
     }
+    // 网络结果回来后，把宿主回调攒下的回填语句一起跑掉
+    takePending();
   }
 }
 
@@ -239,28 +261,46 @@ class JsEnginePool {
       }
       // 第一步：同步求值。异步桥（Promise）在 QuickJS 上不一定被 await，
       // 所以先拿同步结果；需要网络的脚本再走第二步。
-      final syncResult = runtime.evaluate(script);
+      //
+      // ⚠️ 包一层 IIFE：第二步会**重复执行同一段脚本**，
+      // 如果脚本里是 `var id = ...`，第二次会报「已声明」。
+      // 包进函数作用域后每次都是全新的局部变量，可以安全重跑。
+      final wrapped = '(function(){\n$script\n})()';
+      final syncResult = runtime.evaluate(wrapped);
       if (syncResult.isError) {
         throw JsEngineFailure(_clean(syncResult));
       }
       final syncText = syncResult.stringResult;
 
-      // 第二步：如果同步返回的是 Promise 壳（空串或 '[object Promise]'），
-      // 用 evaluateAsync 再试一次 —— JSC 会等，QuickJS 可能不等。
-      if (syncText.isEmpty || syncText.contains('[object Promise]')) {
-        _drainMicrotasks(runtime);
-        final awaited = await runtime
-            .evaluateAsync(script)
-            .timeout(const Duration(seconds: 5));
-        if (awaited.isError) {
-          throw JsEngineFailure(_clean(awaited));
+      // 第二步：脚本返回的不是值，说明它在等宿主异步回填。
+      //
+      // QuickJsRuntime2 的 evaluateAsync **不会**等 Dart 的 Future
+      // （自检里看到的就是 `实际 instance of 'Future<dynamic>'`），
+      // 所以这里手写轮询：
+      //   1. 跑一遍已攒的宿主回填语句
+      //   2. 再跑 microtask 队列
+      //   3. 重新执行脚本，看这次能不能拿到真值
+      // 网络没回来之前每一轮都是空，循环等到超时为止。
+      if (syncText.isEmpty ||
+          syncText.contains('[object Promise]') ||
+          syncText.contains("instance of 'Future")) {
+        final deadline = DateTime.now().add(const Duration(seconds: 6));
+        while (DateTime.now().isBefore(deadline)) {
+          // 等一下，让 Dart 的 HTTP 有机会完成
+          await Future<void>.delayed(const Duration(milliseconds: 25));
+          worker.takePending();
+          _drainMicrotasks(runtime);
+          final retry = runtime.evaluate(wrapped);
+          if (retry.isError) throw JsEngineFailure(_clean(retry));
+          final text = retry.stringResult;
+          if (text.isNotEmpty &&
+              !text.contains('[object Promise]') &&
+              !text.contains("instance of 'Future")) {
+            return text;
+          }
         }
-        final awaitedText = awaited.stringResult;
-        if (awaitedText.isNotEmpty && !awaitedText.contains('[object Promise]')) {
-          return awaitedText;
-        }
-        // 还是空：把 Promise 自己序列化出来，让上层看得见
-        return _describePromise(runtime, script);
+        // 等超时了还没值：把 Promise 自己序列化出来，让上层看得见
+        return _describePromise(runtime, wrapped);
       }
       return syncText;
     } on TimeoutException {

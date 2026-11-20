@@ -362,17 +362,31 @@ class FanhuoSourceRepository extends NovelRepository {
     if (memo != null) return memo;
 
     final binding = _bindings[id];
-    if (binding == null) return const [];
+    if (binding == null) {
+      AppLog.warn('bookSource', '目录：找不到绑定', fields: {'id': id});
+      return const [];
+    }
     final source = _sourceFor(binding);
     if (source == null) {
       throw const FormatException('这本书的来源书源已被删除或关闭');
     }
+
+    final watch = AppLog.timer();
+    AppLog.info('bookSource', '开始抓目录', fields: {
+      'book': binding.title,
+      'src': source.name,
+      'url': binding.bookUrl,
+    });
 
     final tocUrl = await _resolveTocUrl(source, binding);
     final rule = source.tocRule;
     final listRule = rule['chapterList'];
     if (listRule == null) {
       binding.lastError = '这个书源没有目录规则（ruleToc.chapterList）';
+      AppLog.error('bookSource', '目录缺少规则', fields: {
+        'book': binding.title,
+        'src': source.name,
+      });
       throw FormatException(binding.lastError!);
     }
 
@@ -386,14 +400,46 @@ class FanhuoSourceRepository extends NovelRepository {
     // 出现「只有几十章，实际几百几千章」。有 nextTocUrl 就一路跟下去。
     for (var page = 0; page < _maxTocPages; page++) {
       if (!visitedPages.add(pageUrl)) break; // 防死循环
-      final html =
-          await fetch(SearchRequest(url: pageUrl), header: source.header);
+      final pageWatch = AppLog.timer();
+      String html;
+      try {
+        // ⚠️ 必须带超时：有些站接上就不吐字节，没有超时的话
+        // 整个 Future 卡死，外层 6 秒废弃 QuickJS 实例，用户只看到「加载失败」。
+        html = await fetch(SearchRequest(url: pageUrl), header: source.header)
+            .timeout(const Duration(seconds: 12));
+      } catch (error) {
+        AppLog.warn('bookSource', '目录页抓取失败', fields: {
+          'book': binding.title,
+          'src': source.name,
+          'page': page,
+          'url': pageUrl,
+          'ms': pageWatch.ms,
+        }, error: error);
+        binding.lastError = '目录页抓取失败（$error）';
+        if (page == 0) throw FormatException(binding.lastError!);
+        break; // 后续页失败就用已抓到的
+      }
       final document = RuleEngine.parseHtml(html);
       final nodes = RuleEngine.selectNodes(document, listRule);
+      AppLog.info('bookSource', '目录页解析', fields: {
+        'book': binding.title,
+        'page': page,
+        'nodes': nodes.length,
+        'bodyKB': (html.length / 1024).toStringAsFixed(1),
+        'rule': listRule,
+        'ms': pageWatch.ms,
+      });
 
       if (page == 0 && nodes.isEmpty) {
         binding.lastError = '目录页没匹配到章节（规则 chapterList=$listRule），'
             '书源可能改版了；目录页：$pageUrl';
+        AppLog.error('bookSource', '目录规则匹配 0 节点', fields: {
+          'book': binding.title,
+          'src': source.name,
+          'rule': listRule,
+          'bodyKB': (html.length / 1024).toStringAsFixed(1),
+          'url': pageUrl,
+        });
         throw FormatException(binding.lastError!);
       }
 

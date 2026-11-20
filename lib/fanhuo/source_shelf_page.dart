@@ -14,6 +14,7 @@ import 'package:flutter/material.dart';
 import '../archive_wave.dart';
 import '../archive_design.dart';
 import '../catalog.dart';
+import 'collapsible_shelf_layout.dart';
 import 'fanqie_theme.dart';
 import 'source_bootstrap.dart';
 
@@ -146,47 +147,46 @@ class _SourceShelfPageState extends State<SourceShelfPage> {
     if (books == null) return const Center(child: CircularProgressIndicator());
     if (books.isEmpty) return _empty(paper);
 
-    // 书太少时不显示轮播：一两个书脊既不好看，又和下面的列表重复，
-    // 用户会以为是两本书。4 本起才值得用轮播展示。
+    // 书太少时不显示轮播：一两个书脊既不好看，又和下面的列表重复。
     final showCarousel = books.length >= 4;
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        if (showCarousel) ...[
-          // ── 书脊轮播（文庫同款） ──
-          // ClipRect 必须包：轮播内部有 3D 倾斜 + 抽出效果，会超出 268 的高度，
-          // 不裁就压住下面的「全部收藏」和列表。
-          SizedBox(
-            height: 268,
-            child: ClipRect(
-              child: ArchiveFileCarousel(
-                books: books,
-                animateEntrance: true,
-                onOpen: (novel, _) => _open(novel),
-              ),
-            ),
-          ),
-          const SizedBox(height: 8),
+    final listView = ListView.separated(
+      padding: const EdgeInsets.only(top: 4, bottom: 24),
+      itemCount: books.length,
+      separatorBuilder: (context, index) => Divider(
+        height: 1,
+        indent: 20,
+        endIndent: 20,
+        color: paper.raised(0.12),
+      ),
+      itemBuilder: (context, i) => _row(books[i], paper, i),
+    );
+
+    if (!showCarousel) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          ArchiveSection(title: '我的收藏', code: '02 / ALL'),
+          Expanded(child: listView),
         ],
-        ArchiveSection(
-          title: showCarousel ? '全部收藏' : '我的收藏',
-          code: '02 / ALL',
-        ),
-        Expanded(
-          child: ListView.separated(
-            padding: const EdgeInsets.only(top: 4, bottom: 24),
-            itemCount: books.length,
-            separatorBuilder: (context, index) => Divider(
-              height: 1,
-              indent: 20,
-              endIndent: 20,
-              color: paper.raised(0.12),
-            ),
-            itemBuilder: (context, i) => _row(books[i], paper, i),
-          ),
-        ),
-      ],
+      );
+    }
+
+    // 轮播 + 列表，中间可拖拽（同发现页）。
+    return CollapsibleShelfLayout(
+      header: const SizedBox.shrink(),
+      hero: ArchiveFileCarousel(
+        books: books,
+        animateEntrance: true,
+        onOpen: (novel, _) => _open(novel),
+      ),
+      list: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          ArchiveSection(title: '全部收藏', code: '02 / ALL'),
+          Expanded(child: listView),
+        ],
+      ),
     );
   }
 

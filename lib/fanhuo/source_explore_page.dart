@@ -25,6 +25,7 @@ import '../archive_wave.dart';
 import '../catalog.dart';
 import 'app_log.dart';
 import 'book_source.dart';
+import 'collapsible_shelf_layout.dart';
 import 'fanqie_theme.dart';
 import 'multi_source_search.dart';
 import 'rule_engine.dart';
@@ -572,23 +573,25 @@ class _SourceExplorePageState extends State<SourceExplorePage> {
         body: SafeArea(
           child: _building
               ? const Center(child: CircularProgressIndicator())
-              : ListView(
-                  padding: const EdgeInsets.only(bottom: 24),
-                  children: [
-                    _masthead(paper),
-                    _rankTabs(paper),
-                    // 书脊轮播内部有 3D 倾斜和抽出效果，会超出自身高度。
-                    // 不裁的话会压到下面的分类 chips 上（截图里「玄关」「科幻」
-                    // 直接叠在书脊中间）。
-                    ClipRect(
-                      child: Padding(
-                        padding: const EdgeInsets.only(bottom: 12),
-                        child: _rankRow(paper),
-                      ),
-                    ),
-                    _categoryTabs(paper),
-                    _grid(paper),
-                  ],
+              // 上面轮播、下面列表，中间可拖拽。
+              // 轮播 3D 效果占地方，用户反馈「看底下的书不方便」，
+              // 现在可以拉到最矮（18%），点横条一键收起。
+              : CollapsibleShelfLayout(
+                  header: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      _masthead(paper),
+                      _rankTabs(paper),
+                    ],
+                  ),
+                  hero: _rankRow(paper),
+                  list: ListView(
+                    padding: const EdgeInsets.only(bottom: 24),
+                    children: [
+                      _categoryTabs(paper),
+                      _grid(paper),
+                    ],
+                  ),
                 ),
         ),
       ),
@@ -667,30 +670,22 @@ class _SourceExplorePageState extends State<SourceExplorePage> {
 
   Widget _rankRow(FanqiePaper paper) {
     if (_rankLoading) {
-      return const SizedBox(
-        height: 214,
-        child: Center(child: CircularProgressIndicator()),
-      );
+      return const Center(child: CircularProgressIndicator());
     }
     if (_rankHits.isEmpty) {
-      return SizedBox(
-        height: 56,
-        child: Center(
-          child: Text(
-            _rankError.isEmpty ? '这个榜单暂时没有书' : _rankError,
-            style: TextStyle(fontSize: 12, color: paper.raised(0.5)),
-          ),
+      return Center(
+        child: Text(
+          _rankError.isEmpty ? '这个榜单暂时没有书' : _rankError,
+          style: TextStyle(fontSize: 12, color: paper.raised(0.5)),
         ),
       );
     }
     // 榜单用文庫那套书脊轮播：滑到哪本就抽出来露封面。
-    // 原来的横滑卡片太"平"，跟文庫的档案感差得远。
+    // 高度交给外层 CollapsibleShelfLayout 决定（可拖拽），这里只填满。
     final novels = <Novel>[
       for (final hit in _rankHits) _asNovel(hit),
     ];
-    return SizedBox(
-      height: 268,
-      child: ArchiveFileCarousel(
+    return ArchiveFileCarousel(
         books: novels,
         animateEntrance: true,
         onOpen: (novel, _) {
@@ -700,7 +695,6 @@ class _SourceExplorePageState extends State<SourceExplorePage> {
           );
           _open(hit);
         },
-      ),
     );
   }
 
