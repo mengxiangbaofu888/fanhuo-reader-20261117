@@ -577,7 +577,15 @@ class _SourceExplorePageState extends State<SourceExplorePage> {
                   children: [
                     _masthead(paper),
                     _rankTabs(paper),
-                    _rankRow(paper),
+                    // 书脊轮播内部有 3D 倾斜和抽出效果，会超出自身高度。
+                    // 不裁的话会压到下面的分类 chips 上（截图里「玄关」「科幻」
+                    // 直接叠在书脊中间）。
+                    ClipRect(
+                      child: Padding(
+                        padding: const EdgeInsets.only(bottom: 12),
+                        child: _rankRow(paper),
+                      ),
+                    ),
                     _categoryTabs(paper),
                     _grid(paper),
                   ],

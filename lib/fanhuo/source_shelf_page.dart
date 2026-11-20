@@ -146,20 +146,33 @@ class _SourceShelfPageState extends State<SourceShelfPage> {
     if (books == null) return const Center(child: CircularProgressIndicator());
     if (books.isEmpty) return _empty(paper);
 
+    // 书太少时不显示轮播：一两个书脊既不好看，又和下面的列表重复，
+    // 用户会以为是两本书。4 本起才值得用轮播展示。
+    final showCarousel = books.length >= 4;
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        // ── 书脊轮播（文庫同款） ──
-        SizedBox(
-          height: 268,
-          child: ArchiveFileCarousel(
-            books: books,
-            animateEntrance: true,
-            onOpen: (novel, _) => _open(novel),
+        if (showCarousel) ...[
+          // ── 书脊轮播（文庫同款） ──
+          // ClipRect 必须包：轮播内部有 3D 倾斜 + 抽出效果，会超出 268 的高度，
+          // 不裁就压住下面的「全部收藏」和列表。
+          SizedBox(
+            height: 268,
+            child: ClipRect(
+              child: ArchiveFileCarousel(
+                books: books,
+                animateEntrance: true,
+                onOpen: (novel, _) => _open(novel),
+              ),
+            ),
           ),
+          const SizedBox(height: 8),
+        ],
+        ArchiveSection(
+          title: showCarousel ? '全部收藏' : '我的收藏',
+          code: '02 / ALL',
         ),
-        const SizedBox(height: 8),
-        ArchiveSection(title: '全部收藏', code: '02 / ALL'),
         Expanded(
           child: ListView.separated(
             padding: const EdgeInsets.only(top: 4, bottom: 24),

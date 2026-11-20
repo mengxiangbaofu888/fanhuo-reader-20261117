@@ -117,7 +117,14 @@ class _Worker {
         case 'getString':
           return api.getString(arg(0));
         case 'timeFormat':
-          return api.timeFormat(arg(0), args.length > 1 ? arg(1) : null);
+          // ⚠️ 胶水里 `pattern ? String(pattern) : null` 传的是 JS 的 null，
+          // 过桥后 args = [ts, null]，`args.length > 1` 成立，
+          // arg(1) 返回 ''（空串）→ timeFormat(ts, '') → _format(t, '') → **空字符串**。
+          // 于是书源里所有 `java.timeFormat(x)` 都返回空，
+          // 引擎自检也卡在这里（期望 2026/11/18 09:05，实际空）。
+          // 空串 / null 一律当「用默认格式」。
+          final fmt = args.length > 1 ? arg(1) : '';
+          return api.timeFormat(arg(0), fmt.isEmpty ? null : fmt);
         case 'base64Decode':
           return JsHostApi.base64Decode(arg(0));
         case 'base64Encode':

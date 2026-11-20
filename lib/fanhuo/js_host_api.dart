@@ -238,7 +238,11 @@ class JsHostApi {
     // 这里固定用东八区（中文书源站全部在国内）。
     final time = DateTime.fromMillisecondsSinceEpoch(ms, isUtc: true)
         .add(const Duration(hours: 8));
-    final p = pattern ?? 'yyyy/MM/dd HH:mm';
+    // 空串和 null 一样当「没给格式」。
+    // 过桥时空 pattern 会变成 `''`（不是 null），不判断就会返回空字符串。
+    final p = (pattern == null || pattern.trim().isEmpty)
+        ? 'yyyy/MM/dd HH:mm'
+        : pattern;
     return _format(time, p);
   }
 
